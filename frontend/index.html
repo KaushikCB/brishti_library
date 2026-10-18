@@ -56,9 +56,12 @@
           <a href="#books">Books</a>
           <a href="#stationery">Stationery</a>
           <a href="#orders">My Orders</a>
+          <a href="/algorithms" class="nav-highlight">Algorithm Lab</a>
+          <a href="/admin">Admin</a>
         </nav>
 
         <div class="header-actions">
+          <button class="auth-pill" id="auth-toggle" type="button">Sign In</button>
           <button class="cart-button" id="cart-open" type="button" aria-controls="cart-drawer">
             <span class="cart-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -144,12 +147,19 @@
 
       <section class="section" id="orders">
         <div class="orders-panel">
-          <p class="eyebrow">My Orders</p>
-          <h2>Order history will live here</h2>
-          <p>
-            This homepage is frontend-only. After the C and SQLite backend is connected, signed-in
-            customers will see real order records on this page. Nothing is billed from this demo.
+          <div class="orders-header">
+            <div>
+              <p class="eyebrow">My Orders &amp; Tracking</p>
+              <h2>Your bookstore orders</h2>
+            </div>
+            <button class="btn btn-sm btn-ghost" id="refresh-orders-btn" type="button">Refresh Orders</button>
+          </div>
+          <p class="orders-desc">
+            Connected to the C backend and SQLite database. Real-time order records, item summaries, and delivery tracking:
           </p>
+          <div class="orders-list" id="orders-list">
+            <p class="empty-state">Loading your order history from the C backend…</p>
+          </div>
         </div>
       </section>
     </main>
@@ -199,11 +209,98 @@
         </div>
         <ul class="cart-items" id="cart-items"></ul>
         <div class="cart-foot">
-          <p class="cart-total">Total: <strong id="cart-total">৳0</strong></p>
-          <p class="cart-note">Checkout will use the C backend in a later lab step.</p>
+          <div class="cart-summary-lines">
+            <div class="summary-line"><span>Subtotal:</span> <span id="cart-subtotal">৳0</span></div>
+            <div class="summary-line"><span>Delivery (Dhaka/Campus):</span> <span id="cart-delivery">৳60</span></div>
+            <div class="summary-line summary-total"><span>Total:</span> <strong id="cart-total">৳0</strong></div>
+          </div>
+          <button type="button" class="btn btn-primary btn-block" id="checkout-open-btn">Proceed to Checkout</button>
+          <p class="cart-note">Verified live by C &amp; SQLite backend.</p>
         </div>
       </div>
     </aside>
+
+    <!-- Checkout Modal Dialog -->
+    <dialog class="modal-dialog" id="checkout-modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2>Complete Your Order</h2>
+          <button type="button" class="icon-close" id="checkout-close-btn">Close</button>
+        </div>
+        <form class="checkout-form" id="checkout-form">
+          <div class="form-group">
+            <label for="cust-name">Full Name *</label>
+            <input type="text" id="cust-name" name="customer_name" required placeholder="e.g. Rahim Chowdhury" />
+          </div>
+          <div class="form-group">
+            <label for="cust-phone">Phone Number (Bangladesh) *</label>
+            <input type="tel" id="cust-phone" name="phone" required placeholder="e.g. 01711-223344" />
+          </div>
+          <div class="form-group">
+            <label for="cust-address">Delivery Address (Dorm, Campus, or City) *</label>
+            <textarea id="cust-address" name="delivery_address" required rows="2" placeholder="e.g. Room 214, Rain Hall / CSE Dept Building"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="cust-payment">Payment Method</label>
+            <select id="cust-payment" name="payment_method">
+              <option value="Cash on Delivery">Cash on Delivery (Campus Pickup / Courier)</option>
+              <option value="bKash (Sandbox)">bKash (Sandbox Demo)</option>
+              <option value="Nagad (Sandbox)">Nagad (Sandbox Demo)</option>
+            </select>
+          </div>
+          <div class="checkout-summary-box" id="checkout-summary-box">
+            <p>Order Total: <strong id="checkout-total-val">৳0</strong> (incl. ৳60 delivery)</p>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="checkout-cancel-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="place-order-submit-btn">Confirm Order</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Authentication Modal Dialog -->
+    <dialog class="modal-dialog" id="auth-modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="auth-modal-title">Sign In to BrishtiLibrary</h2>
+          <button type="button" class="icon-close" id="auth-close-btn">Close</button>
+        </div>
+        <div class="auth-modal-body" id="auth-modal-body">
+          <p class="auth-notice">
+            Academic Lab Authentication: You can sign in using Google OAuth or switch directly to demo student/admin accounts for grading.
+          </p>
+
+          <div class="auth-options">
+            <button type="button" class="btn btn-demo btn-block" id="demo-student-btn">
+              <span>Sign In as Student Demo</span>
+              <small>student@brishtilibrary.edu</small>
+            </button>
+            <button type="button" class="btn btn-demo-admin btn-block" id="demo-admin-btn">
+              <span>Sign In as Admin</span>
+              <small>admin@brishtilibrary.edu (Inventory &amp; Orders)</small>
+            </button>
+          </div>
+
+          <div class="auth-divider"><span>or Google Sign-In</span></div>
+
+          <div class="google-signin-wrapper">
+            <!-- Google Identity Services Container -->
+            <div id="g_id_onload"
+                 data-client_id="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+                 data-context="signin"
+                 data-ux_mode="popup"
+                 data-callback="handleGoogleSignIn"
+                 data-auto_prompt="false">
+            </div>
+            <div class="g_id_signin" data-type="standard" data-shape="pill" data-theme="outline" data-text="signin_with" data-size="large"></div>
+            <p class="google-note">
+              To activate real Google Sign-In, set your Google OAuth Client ID in the configuration.
+            </p>
+          </div>
+        </div>
+      </div>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CSE214 Algorithm Lab — BrishtiLibrary</title>
+    <meta
+      name="description"
+      content="CSE214 Algorithm Lab interactive visualizer and performance benchmark runner powered by a genuine C backend."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650;9..144,700&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/algorithms.css" />
+  </head>
+  <body class="lab-body">
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="/" aria-label="BrishtiLibrary home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" role="img">
+              <rect width="40" height="40" rx="10" fill="currentColor" />
+              <path d="M11 14h18v16H14.5c-1.9 0-3.5-1.4-3.5-3.2V14z" fill="#f6efe3" />
+              <path d="M14 14v12.6c0 .7.7 1.2 1.5 1.2H29" stroke="#8f2d3a" stroke-width="1.6" fill="none" />
+              <path
+                d="M20 8.5c.5 1.4 1.3 2.3 2.5 2.8-1.2.5-2 1.4-2.5 2.8-.5-1.4-1.3-2.3-2.5-2.8 1.2-.5 2-1.4 2.5-2.8z"
+                fill="#e8c36a"
+              />
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <span class="brand-name">BrishtiLibrary</span>
+            <span class="brand-tag">CSE214 Algorithm Lab</span>
+          </span>
+        </a>
+
+        <nav class="primary-nav" id="primary-nav" aria-label="Primary">
+          <a href="/">Storefront</a>
+          <a href="/#books">Books</a>
+          <a href="/#stationery">Stationery</a>
+          <a href="/#orders">Orders</a>
+          <a href="/algorithms" class="nav-highlight">Algorithm Lab</a>
+          <a href="/admin">Admin</a>
+        </nav>
+
+        <div class="header-actions">
+          <span class="c-engine-badge">
+            <span class="badge-dot"></span> Backend Engine: <strong>C99 / GCC</strong>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <main class="lab-main">
+      <section class="lab-hero">
+        <div class="lab-hero-inner">
+          <p class="eyebrow">Academic Demonstration</p>
+          <h1>CSE214 Algorithm Lab Visualizer</h1>
+          <p class="lede">
+            Interactive algorithm execution directly powered by our C backend. Every probe, comparison, swap,
+            partition pass, and shortest path is calculated in C and returned with high-resolution microsecond timings.
+          </p>
+
+          <!-- Navigation Pills -->
+          <div class="lab-nav-pills" role="tablist">
+            <button class="pill active" data-tab="tab-search" role="tab">1. Searching</button>
+            <button class="pill" data-tab="tab-sort" role="tab">2. Sorting</button>
+            <button class="pill" data-tab="tab-opt" role="tab">3. Greedy vs DP</button>
+            <button class="pill" data-tab="tab-graph" role="tab">4. Graph / Dijkstra</button>
+            <button class="pill" data-tab="tab-benchmark" role="tab">5. Fair Benchmark</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="lab-content-container">
+        <!-- TAB 1: SEARCHING -->
+        <section class="lab-tab-panel active" id="tab-search" role="tabpanel">
+          <div class="panel-header">
+            <h2>Searching Algorithms</h2>
+            <p>Compare Linear Search vs Binary Search with probe tracing and duplicate occurrence handling.</p>
+          </div>
+
+          <div class="lab-grid-2">
+            <!-- Linear Search Card -->
+            <div class="lab-card">
+              <div class="lab-card-header">
+                <h3>A. Linear Search</h3>
+                <span class="tag-complexity">Time: O(n) | Space: O(1)</span>
+              </div>
+              <p class="card-desc">
+                Scans array sequentially from index 0. Stops upon first match.
+              </p>
+              <div class="input-row">
+                <label>Array (comma-separated):</label>
+                <input type="text" id="linear-arr-input" value="14, 28, 5, 92, 45, 17, 63, 92, 8" />
+              </div>
+              <div class="input-row">
+                <label>Target Value:</label>
+                <input type="number" id="linear-target-input" value="92" />
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-primary btn-sm" id="btn-run-linear">Execute C Linear Search</button>
+                <button class="btn btn-ghost btn-sm" data-preset="linear" data-type="random">Randomize</button>
+              </div>
+
+              <!-- Output Box -->
+              <div class="algo-output-box" id="linear-output-box" hidden>
+                <div class="metrics-row">
+                  <div class="metric">Found Index: <strong id="linear-res-idx">-</strong></div>
+                  <div class="metric">Comparisons: <strong id="linear-res-cmp">-</strong></div>
+                  <div class="metric">Time: <strong id="linear-res-time">-</strong> µs</div>
+                </div>
+                <div class="trace-container">
+                  <h4>Step-by-step Probes:</h4>
+                  <div class="probe-chips" id="linear-chips"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Binary Search Card -->
+            <div class="lab-card">
+              <div class="lab-card-header">
+                <h3>B. Binary Search</h3>
+                <span class="tag-complexity">Time: O(log n) | Space: O(1)</span>
+              </div>
+              <p class="card-desc">
+                Requires sorted input. Continuously divides search range in half. Resolves first occurrence on duplicates.
+              </p>
+              <div class="input-row">
+                <label>Sorted Array:</label>
+                <input type="text" id="binary-arr-input" value="3, 8, 14, 17, 28, 45, 63, 92, 92, 105" />
+              </div>
+              <div class="input-row">
+                <label>Target Value:</label>
+                <input type="number" id="binary-target-input" value="92" />
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-primary btn-sm" id="btn-run-binary">Execute C Binary Search</button>
+                <button class="btn btn-ghost btn-sm" data-preset="binary" data-type="sort-current">Auto-Sort Input</button>
+              </div>
+
+              <!-- Output Box -->
+              <div class="algo-output-box" id="binary-output-box" hidden>
+                <div class="metrics-row">
+                  <div class="metric">Found Index: <strong id="binary-res-idx">-</strong></div>
+                  <div class="metric">Comparisons: <strong id="binary-res-cmp">-</strong></div>
+                  <div class="metric">Probes/Iter: <strong id="binary-res-iter">-</strong></div>
+                  <div class="metric">Time: <strong id="binary-res-time">-</strong> µs</div>
+                </div>
+                <div class="trace-container">
+                  <h4>Binary Search Windows [Low, Mid, High]:</h4>
+                  <div class="binary-steps-list" id="binary-steps-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: SORTING -->
+        <section class="lab-tab-panel" id="tab-sort" role="tabpanel">
+          <div class="panel-header">
+            <h2>Sorting Algorithms</h2>
+            <p>Execute Insertion, Selection, Bubble, and Quick Sort in C with pass snapshots and operation counts.</p>
+          </div>
+
+          <div class="lab-card full-width">
+            <div class="sort-controls-bar">
+              <div class="input-row flex-1">
+                <label>Input Array:</label>
+                <input type="text" id="sort-arr-input" value="48, 12, 75, 33, 9, 62, 25, 88, 17, 5" />
+              </div>
+              <div class="input-row">
+                <label>Algorithm:</label>
+                <select id="sort-algo-select">
+                  <option value="insertion">C. Insertion Sort</option>
+                  <option value="selection">D. Selection Sort</option>
+                  <option value="bubble">E. Bubble Sort (Early-Exit)</option>
+                  <option value="quick">F. Quick Sort (Lomuto Partition)</option>
+                </select>
+              </div>
+              <div class="btn-group align-end">
+                <button class="btn btn-primary" id="btn-run-sort">Run C Sort</button>
+                <button class="btn btn-ghost btn-sm" id="btn-preset-sorted">Already Sorted</button>
+                <button class="btn btn-ghost btn-sm" id="btn-preset-reversed">Reverse Sorted</button>
+                <button class="btn btn-ghost btn-sm" id="btn-preset-dups">With Duplicates</button>
+              </div>
+            </div>
+
+            <!-- Sort Results Display -->
+            <div class="sort-results-area" id="sort-results-area" hidden>
+              <div class="algo-info-banner">
+                <div>
+                  <h3 id="sort-result-title">Insertion Sort</h3>
+                  <p id="sort-complexity-note">Best: O(n) | Worst: O(n²) | Space: O(1)</p>
+                </div>
+                <div class="metrics-ribbon">
+                  <div class="ribbon-item">Comparisons: <strong id="sort-metric-cmp">0</strong></div>
+                  <div class="ribbon-item">Swaps: <strong id="sort-metric-swaps">0</strong></div>
+                  <div class="ribbon-item">Shifts/Moves: <strong id="sort-metric-shifts">0</strong></div>
+                  <div class="ribbon-item">Time: <strong id="sort-metric-time">0</strong> µs</div>
+                </div>
+              </div>
+
+              <!-- Pass Slider & Step Controller -->
+              <div class="step-player">
+                <button class="btn btn-sm btn-ghost" id="btn-prev-pass">◀ Previous Pass</button>
+                <span class="pass-indicator">Pass <strong id="curr-pass-num">1</strong> of <strong id="total-pass-num">1</strong></span>
+                <button class="btn btn-sm btn-ghost" id="btn-next-pass">Next Pass ▶</button>
+                <button class="btn btn-sm btn-primary" id="btn-play-passes">▶ Auto Play</button>
+              </div>
+
+              <!-- Visual Array Bars & Chips -->
+              <div class="array-visualizer-container" id="array-bars-container"></div>
+
+              <!-- Pass State Details -->
+              <div class="pass-detail-box" id="pass-detail-box"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: GREEDY VS DYNAMIC PROGRAMMING -->
+        <section class="lab-tab-panel" id="tab-opt" role="tabpanel">
+          <div class="panel-header">
+            <h2>Optimization: Greedy Heuristic vs 0/1 Knapsack DP</h2>
+            <p>
+              Compare the value-density Greedy choice against the mathematically exact 0/1 Knapsack Dynamic Programming
+              algorithm using bookstore products.
+            </p>
+          </div>
+
+          <div class="lab-card full-width">
+            <div class="opt-toolbar">
+              <div class="budget-slider-wrapper">
+                <label for="opt-budget-slider">Student Budget: <strong id="budget-display">৳750</strong></label>
+                <input type="range" id="opt-budget-slider" min="150" max="2000" step="50" value="750" />
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-primary" id="btn-run-opt">Execute C Greedy &amp; DP</button>
+                <button class="btn btn-ghost btn-sm" id="btn-opt-counterexample">Load Suboptimality Proof Case</button>
+              </div>
+            </div>
+
+            <div class="opt-comparison-grid">
+              <!-- Greedy Column -->
+              <div class="opt-column opt-greedy">
+                <div class="opt-col-header">
+                  <h3>G. Greedy Algorithm</h3>
+                  <span class="tag-opt">Heuristic: Highest Value/Cost Density</span>
+                </div>
+                <div class="opt-metrics" id="greedy-metrics">
+                  <div>Spent: <strong id="greedy-spent">৳0</strong></div>
+                  <div>Remaining: <strong id="greedy-remaining">৳0</strong></div>
+                  <div>Total Score: <strong id="greedy-score">0</strong></div>
+                  <div>Time: <strong id="greedy-time">0</strong> µs</div>
+                </div>
+                <div class="opt-explanation" id="greedy-explanation">
+                  Selects products greedily based on utility-per-Taka ratio.
+                </div>
+                <h4>Items Picked by Greedy:</h4>
+                <ul class="picked-items-list" id="greedy-items-list">
+                  <li>Click "Execute C Greedy &amp; DP" to run.</li>
+                </ul>
+              </div>
+
+              <!-- DP Column -->
+              <div class="opt-column opt-dp">
+                <div class="opt-col-header">
+                  <h3>H. 0/1 Knapsack (Dynamic Programming)</h3>
+                  <span class="tag-opt tag-opt-exact">Exact Global Optimum Guaranteed</span>
+                </div>
+                <div class="opt-metrics" id="dp-metrics">
+                  <div>Spent: <strong id="dp-spent">৳0</strong></div>
+                  <div>Remaining: <strong id="dp-remaining">৳0</strong></div>
+                  <div>Total Score: <strong id="dp-score">0</strong></div>
+                  <div>Time: <strong id="dp-time">0</strong> µs</div>
+                </div>
+                <div class="opt-explanation" id="dp-explanation">
+                  Constructs the DP table: <code>dp[i][w] = max(dp[i-1][w], dp[i-1][w-cost] + val)</code> and backtracks to guarantee the global maximum.
+                </div>
+                <h4>Items Picked by DP:</h4>
+                <ul class="picked-items-list" id="dp-items-list">
+                  <li>Click "Execute C Greedy &amp; DP" to run.</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Analysis Box -->
+            <div class="opt-analysis-box" id="opt-analysis-box" hidden>
+              <h4>Educational Takeaway for CSE214:</h4>
+              <p id="opt-analysis-text"></p>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 4: GRAPH ALGORITHMS (DIJKSTRA) -->
+        <section class="lab-tab-panel" id="tab-graph" role="tabpanel">
+          <div class="panel-header">
+            <h2>Graph Algorithms: Dijkstra's Shortest Path</h2>
+            <p>
+              Calculates shortest delivery paths across campus hubs and Dhaka distribution centers using Dijkstra's algorithm in C.
+            </p>
+          </div>
+
+          <div class="lab-card full-width">
+            <div class="dijkstra-toolbar">
+              <div class="input-row">
+                <label for="dijkstra-source-select">Select Dispatch Location (Source Hub):</label>
+                <select id="dijkstra-source-select">
+                  <option value="0">0: Main Library Warehouse (Central)</option>
+                  <option value="1">1: Rain Hall (Dormitories)</option>
+                  <option value="2">2: Science &amp; CSE Faculty</option>
+                  <option value="3">3: Curzon Hall Campus</option>
+                  <option value="4">4: Dhanmondi Student Hub</option>
+                  <option value="5">5: Uttara Drop Point</option>
+                  <option value="6">6: Isolated Saint Martin Hub (Disconnected)</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" id="btn-run-dijkstra">Compute Shortest Paths in C</button>
+            </div>
+
+            <div class="dijkstra-display-grid">
+              <!-- Network Visualization Map -->
+              <div class="graph-map-box">
+                <h3>Delivery Network Topology</h3>
+                <div class="graph-nodes-map" id="graph-nodes-map">
+                  <!-- Node Pills rendered by JS -->
+                </div>
+                <p class="graph-note">
+                  Edges represent delivery routes with non-negative road distances (km). Notice Node 6 is disconnected to demonstrate unreachable node detection.
+                </p>
+              </div>
+
+              <!-- Shortest Path Table -->
+              <div class="dijkstra-table-box">
+                <h3>Calculated Route Table</h3>
+                <table class="lab-table" id="dijkstra-table">
+                  <thead>
+                    <tr>
+                      <th>Hub ID &amp; Name</th>
+                      <th>Shortest Distance</th>
+                      <th>Reconstructed Path</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dijkstra-tbody">
+                    <tr><td colspan="4">Click "Compute Shortest Paths in C" to run.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: FAIR BENCHMARK RUNNER -->
+        <section class="lab-tab-panel" id="tab-benchmark" role="tabpanel">
+          <div class="panel-header">
+            <h2>Algorithm Benchmark &amp; Fair Comparison</h2>
+            <p>
+              Executes all 4 sorting algorithms and both search algorithms on identical array copies with nanosecond C performance counters.
+            </p>
+          </div>
+
+          <div class="lab-card full-width">
+            <div class="benchmark-toolbar">
+              <div class="input-row flex-1">
+                <label>Array Size (N):</label>
+                <select id="benchmark-size-select">
+                  <option value="25">25 Elements (Quick Trace)</option>
+                  <option value="50" selected>50 Elements (Standard Lab Demo)</option>
+                  <option value="64">64 Elements (Maximum Trace Depth)</option>
+                </select>
+              </div>
+              <div class="input-row">
+                <label>Search Target:</label>
+                <input type="number" id="benchmark-target" value="37" />
+              </div>
+              <button class="btn btn-primary" id="btn-run-benchmark">Execute Real-Time C Benchmark</button>
+            </div>
+
+            <!-- Comparison Output Tables -->
+            <div class="benchmark-results" id="benchmark-results" hidden>
+              <h3>Sorting Algorithms Fair Comparison</h3>
+              <p class="benchmark-subtitle">Identical copy of input array provided to each sorting implementation.</p>
+              <table class="lab-table" id="sort-benchmark-table">
+                <thead>
+                  <tr>
+                    <th>Algorithm</th>
+                    <th>Theoretical Complexity</th>
+                    <th>Auxiliary Space</th>
+                    <th>Element Comparisons</th>
+                    <th>Swaps</th>
+                    <th>Shifts / Moves</th>
+                    <th>Execution Time (µs)</th>
+                    <th>Verified Correct</th>
+                  </tr>
+                </thead>
+                <tbody id="sort-benchmark-tbody"></tbody>
+              </table>
+
+              <h3 style="margin-top: 32px;">Searching Algorithms Fair Comparison</h3>
+              <p class="benchmark-subtitle">Target search on original vs pre-sorted array copy.</p>
+              <table class="lab-table" id="search-benchmark-table">
+                <thead>
+                  <tr>
+                    <th>Algorithm</th>
+                    <th>Input Precondition</th>
+                    <th>Theoretical Complexity</th>
+                    <th>Comparisons Made</th>
+                    <th>Result Index</th>
+                    <th>Execution Time (µs)</th>
+                  </tr>
+                </thead>
+                <tbody id="search-benchmark-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-grid">
+        <div>
+          <p class="brand-name">BrishtiLibrary</p>
+          <p>CSE214 Algorithm Lab Academic Demonstration. All algorithms executed in genuine C99 via Winsock HTTP Server.</p>
+        </div>
+        <div>
+          <h3>Algorithms</h3>
+          <ul>
+            <li>Linear &amp; Binary Search</li>
+            <li>Insertion, Selection, Bubble, Quick Sort</li>
+            <li>Greedy vs 0/1 Knapsack DP</li>
+            <li>Dijkstra Shortest Path</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Platform</h3>
+          <ul>
+            <li>Language: ISO C99 / C11</li>
+            <li>Compiler: MinGW GCC 6.3</li>
+            <li>Database: SQLite 3.36 (C API)</li>
+            <li>Parser: cJSON Amalgamation</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Department</h3>
+          <address>
+            CSE214 Algorithm Lab<br />
+            Rain Hall, Room 214<br />
+            Dhaka, Bangladesh
+          </address>
+        </div>
+      </div>
+      <p class="copyright">© 2026 BrishtiLibrary CSE214 Project. Certified C Backend.</p>
+    </footer>
+
+    <script src="../js/algorithms.js"></script>
+  </body>
+</html>

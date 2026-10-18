@@ -1,0 +1,14 @@
+# Compiled binaries and object files
+*.exe
+*.o
+*.obj
+
+# Persistent SQLite database and logs
+database/*.db
+database/*.db-wal
+database/*.db-shm
+*.log
+
+# Environment variables & secrets
+.env
+*.secret
