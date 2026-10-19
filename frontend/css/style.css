@@ -82,9 +82,19 @@ input {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: rgba(246, 239, 227, 0.92);
-  backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--line);
+  
+  /* 1. Dark, semi-transparent base tint (Image 2 aesthetic) */
+  background: rgba(168, 223, 243, 0.45); 
+  
+  /* 2. Deeper, richer frosted blur effect */
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);  
+  
+  /* 3. Subtle dark/translucent border edge */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08); 
+  
+  /* (Optional/Important) Prevent light-colored system default font rendering issues on dark BGs */
+  color-scheme: dark; 
 }
 
 .header-inner {
@@ -97,7 +107,6 @@ input {
   gap: 12px 20px;
   align-items: center;
 }
-
 .brand {
   display: flex;
   align-items: center;
