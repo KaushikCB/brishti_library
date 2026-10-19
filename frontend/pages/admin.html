@@ -111,6 +111,10 @@
               <p class="eyebrow">Inventory</p>
               <h2>Products Catalog &amp; Stock Levels</h2>
             </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <button class="btn btn-sm btn-ghost" id="btn-refresh-admin-products">Refresh Products</button>
+              <button class="btn btn-sm btn-primary" id="btn-open-add-product">+ Add Product</button>
+            </div>
           </div>
 
           <div class="table-responsive">
@@ -124,16 +128,98 @@
                   <th>Price</th>
                   <th>Stock Available</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="admin-products-tbody">
-                <tr><td colspan="7">Loading catalog from C backend…</td></tr>
+                <tr><td colspan="8">Loading catalog from C backend…</td></tr>
               </tbody>
             </table>
           </div>
         </section>
       </div>
     </main>
+
+    <!-- Add Product Modal Dialog -->
+    <dialog class="modal-dialog" id="modal-add-product">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <span class="eyebrow" style="font-size:0.75rem;">Inventory Control</span>
+            <h2>Add New Product</h2>
+          </div>
+          <button type="button" class="icon-close" id="btn-close-product-modal" aria-label="Close dialog">&times;</button>
+        </div>
+
+        <form id="form-add-product">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prod-type">Product Type *</label>
+              <select id="prod-type" name="type" required>
+                <option value="book" selected>Book</option>
+                <option value="stationery">Stationery</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="prod-sku">Custom SKU (Optional)</label>
+              <input type="text" id="prod-sku" name="sku" placeholder="Auto-generated if blank" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="prod-title">Product Title / Name *</label>
+            <input type="text" id="prod-title" name="title" required placeholder="e.g. Introduction to Algorithms" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1" id="wrap-author">
+              <label for="prod-author">Author *</label>
+              <input type="text" id="prod-author" name="author" placeholder="e.g. T. Cormen" />
+            </div>
+            <div class="form-group flex-1" id="wrap-brand" style="display:none;">
+              <label for="prod-brand">Brand *</label>
+              <input type="text" id="prod-brand" name="brand" placeholder="e.g. Rain Stationery" />
+            </div>
+            <div class="form-group flex-1">
+              <label for="prod-category">Category *</label>
+              <input type="text" id="prod-category" name="category" required placeholder="e.g. Computer Science" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prod-price">Price (৳) *</label>
+              <input type="number" id="prod-price" name="price" step="0.5" min="1" required placeholder="850" />
+            </div>
+            <div class="form-group flex-1">
+              <label for="prod-stock">Stock Quantity *</label>
+              <input type="number" id="prod-stock" name="stock_quantity" min="0" value="20" required />
+            </div>
+          </div>
+
+          <div class="form-row" id="wrap-book-extra">
+            <div class="form-group flex-1">
+              <label for="prod-isbn">ISBN</label>
+              <input type="text" id="prod-isbn" name="isbn" placeholder="978-984-..." />
+            </div>
+            <div class="form-group flex-1">
+              <label for="prod-edition">Edition</label>
+              <input type="text" id="prod-edition" name="edition" placeholder="3rd Edition" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="prod-description">Description</label>
+            <textarea id="prod-description" name="description" rows="3" placeholder="Brief summary of the product..."></textarea>
+          </div>
+
+          <div class="modal-actions" style="margin-top:20px;">
+            <button type="button" class="btn btn-ghost" id="btn-cancel-add-product">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-add-product">Save Product</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <script src="../js/admin.js"></script>

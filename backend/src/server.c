@@ -259,12 +259,28 @@ static void handle_client(SOCKET sock, const char *web_root) {
         char q[64] = "";
         char sort[32] = "";
         char type[32] = "";
+        char avail[32] = "";
+        char min_p[32] = "";
+        char max_p[32] = "";
+        char limit_s[32] = "";
+        char offset_s[32] = "";
+
         get_query_param(query, "category", cat, sizeof(cat));
         get_query_param(query, "q", q, sizeof(q));
         get_query_param(query, "sort", sort, sizeof(sort));
         get_query_param(query, "type", type, sizeof(type));
+        get_query_param(query, "availability", avail, sizeof(avail));
+        get_query_param(query, "min_price", min_p, sizeof(min_p));
+        get_query_param(query, "max_price", max_p, sizeof(max_p));
+        get_query_param(query, "limit", limit_s, sizeof(limit_s));
+        get_query_param(query, "offset", offset_s, sizeof(offset_s));
 
-        char *json = db_get_products_json(cat, q, sort, type);
+        double min_price = atof(min_p);
+        double max_price = atof(max_p);
+        int limit = atoi(limit_s);
+        int offset = atoi(offset_s);
+
+        char *json = db_get_products_json(cat, q, sort, type, avail, min_price, max_price, limit, offset);
         send_json_response(sock, 200, json, NULL);
         free(json);
     } else if (strncmp(path, "/api/products/", 14) == 0) {
@@ -380,23 +396,68 @@ static void handle_client(SOCKET sock, const char *web_root) {
         send_json_response(sock, 200, "{\"status\":\"success\",\"message\":\"Logged out\"}", cookie_hdr);
     }
 
-    /* --- ADMIN ENDPOINTS --- */
-    else if (strcmp(path, "/api/admin/orders") == 0) {
-        char *json = db_admin_get_all_orders_json();
-        send_json_response(sock, 200, json, NULL);
-        free(json);
-    } else if (strncmp(path, "/api/admin/orders/", 18) == 0 && strcmp(method, "PATCH") == 0) {
-        int oid = atoi(path + 18);
-        cJSON *req = cJSON_Parse(body);
-        const char *new_status = "Confirmed";
-        if (req) {
-            cJSON *s = cJSON_GetObjectItem(req, "status");
-            if (s && s->valuestring) new_status = s->valuestring;
+    /* --- ADMIN ENDPOINTS (Protected: requires admin role) --- */
+    else if (strncmp(path, "/api/admin/", 11) == 0) {
+        if (current_user_id <= 0 || strcmp(user_role, "admin") != 0) {
+            send_error_json(sock, 403, "Admin authorization required");
+            closesocket(sock);
+            return;
         }
-        char *json = db_admin_update_order_status_json(oid, new_status);
-        send_json_response(sock, 200, json, NULL);
-        if (req) cJSON_Delete(req);
-        free(json);
+
+        if (strcmp(path, "/api/admin/orders") == 0 && strcmp(method, "GET") == 0) {
+            char *json = db_admin_get_all_orders_json();
+            send_json_response(sock, 200, json, NULL);
+            free(json);
+        } else if (strncmp(path, "/api/admin/orders/", 18) == 0 && (strcmp(method, "PATCH") == 0 || strcmp(method, "PUT") == 0)) {
+            int oid = atoi(path + 18);
+            cJSON *req = cJSON_Parse(body);
+            const char *new_status = "Confirmed";
+            if (req) {
+                cJSON *s = cJSON_GetObjectItem(req, "status");
+                if (s && s->valuestring) new_status = s->valuestring;
+            }
+            char *json = db_admin_update_order_status_json(oid, new_status);
+            send_json_response(sock, 200, json, NULL);
+            if (req) cJSON_Delete(req);
+            free(json);
+        } else if (strcmp(path, "/api/admin/products") == 0 && strcmp(method, "GET") == 0) {
+            char *json = db_admin_get_all_products_json();
+            send_json_response(sock, 200, json, NULL);
+            free(json);
+        } else if (strcmp(path, "/api/admin/products") == 0 && strcmp(method, "POST") == 0) {
+            char *json = db_admin_create_product_json(body);
+            int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 201;
+            send_json_response(sock, code, json, NULL);
+            free(json);
+        } else if (strncmp(path, "/api/admin/products/", 20) == 0 && (strcmp(method, "PUT") == 0 || strcmp(method, "PATCH") == 0)) {
+            int pid = atoi(path + 20);
+            char *json = db_admin_update_product_json(pid, body);
+            int code = 200;
+            if (strstr(json, "\"status\":\"error\"") != NULL) {
+                if (strstr(json, "not found") != NULL) {
+                    code = 404;
+                } else {
+                    code = 400;
+                }
+            }
+            send_json_response(sock, code, json, NULL);
+            free(json);
+        } else if (strncmp(path, "/api/admin/products/", 20) == 0 && strcmp(method, "DELETE") == 0) {
+            int pid = atoi(path + 20);
+            char *json = db_admin_delete_product_json(pid);
+            int code = 200;
+            if (strstr(json, "\"status\":\"error\"") != NULL) {
+                if (strstr(json, "not found") != NULL) {
+                    code = 404;
+                } else {
+                    code = 400;
+                }
+            }
+            send_json_response(sock, code, json, NULL);
+            free(json);
+        } else {
+            send_error_json(sock, 404, "Admin endpoint not found");
+        }
     }
 
     /* --- STATIC FILE SERVING --- */

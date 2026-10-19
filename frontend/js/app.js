@@ -131,6 +131,41 @@
   const ordersList = document.getElementById("orders-list");
   const refreshOrdersBtn = document.getElementById("refresh-orders-btn");
 
+  /* Catalog Filter & Sort Elements */
+  const filterCategory = document.getElementById("filter-category");
+  const filterSort = document.getElementById("filter-sort");
+  const filterInStock = document.getElementById("filter-instock");
+  const btnResetFilters = document.getElementById("btn-reset-filters");
+  const catalogCountBadge = document.getElementById("catalog-count-badge");
+  const activeFilterTags = document.getElementById("active-filter-tags");
+
+  /* Product Detail Modal Elements */
+  const productDetailModal = document.getElementById("product-detail-modal");
+  const detailModalCloseBtn = document.getElementById("detail-modal-close-btn");
+  const detailProductType = document.getElementById("detail-product-type");
+  const detailProductTitle = document.getElementById("detail-product-title");
+  const detailCoverBox = document.getElementById("detail-cover-box");
+  const detailCoverTitle = document.getElementById("detail-cover-title");
+  const detailSku = document.getElementById("detail-sku");
+  const detailStockBadge = document.getElementById("detail-stock-badge");
+  const detailPrice = document.getElementById("detail-price");
+  const detailDiscount = document.getElementById("detail-discount");
+  const detailDescription = document.getElementById("detail-description");
+  const detailMetaList = document.getElementById("detail-meta-list");
+  const detailQtyInput = document.getElementById("detail-qty-input");
+  const detailQtyDec = document.getElementById("detail-qty-dec");
+  const detailQtyInc = document.getElementById("detail-qty-inc");
+  const detailAddCartBtn = document.getElementById("detail-add-cart-btn");
+
+  let currentDetailProduct = null;
+
+  let activeFilters = {
+    category: "all",
+    sort: "featured",
+    inStock: false,
+    search: "",
+  };
+
   const CART_KEY = "brishtilibrary-cart";
 
   function readCart() {
@@ -159,23 +194,207 @@
     }, 2200);
   }
 
-  /* Fetch products from SQLite C backend */
-  async function fetchProducts(searchQuery = "") {
+  /* Fetch categories from SQLite C backend */
+  async function loadCategories() {
+    if (!filterCategory) return;
     try {
-      const url = searchQuery
-        ? `/api/products?q=${encodeURIComponent(searchQuery)}`
-        : "/api/products";
+      const resp = await fetch("/api/categories");
+      if (resp.ok) {
+        const cats = await resp.json();
+        if (Array.isArray(cats)) {
+          const names = Array.from(new Set(cats.map((c) => c.name))).sort();
+          filterCategory.innerHTML =
+            '<option value="all">All Categories</option>' +
+            names
+              .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+              .join("");
+          if (activeFilters.category) {
+            filterCategory.value = activeFilters.category;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load categories:", e);
+    }
+  }
+
+  /* Fetch products from SQLite C backend with filter/sort/search params */
+  async function fetchProducts() {
+    try {
+      const params = new URLSearchParams();
+      if (activeFilters.category && activeFilters.category !== "all") {
+        params.append("category", activeFilters.category);
+      }
+      if (activeFilters.search) {
+        params.append("q", activeFilters.search);
+      }
+      if (activeFilters.sort && activeFilters.sort !== "featured") {
+        params.append("sort", activeFilters.sort);
+      }
+      if (activeFilters.inStock) {
+        params.append("availability", "in_stock");
+      }
+
+      const queryString = params.toString();
+      const url = queryString ? `/api/products?${queryString}` : "/api/products";
       const resp = await fetch(url);
       if (resp.ok) {
         const data = await resp.json();
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           products = data;
         }
       }
     } catch (err) {
       console.warn("Using offline fallback catalog:", err);
     }
+
     renderCatalog();
+    updateFilterUI();
+  }
+
+  function updateFilterUI() {
+    if (catalogCountBadge) {
+      catalogCountBadge.textContent = `${products.length} product(s) available`;
+    }
+
+    if (searchStatus) {
+      if (activeFilters.search) {
+        searchStatus.hidden = false;
+        searchStatus.innerHTML = `Showing results for <strong>"${escapeHtml(activeFilters.search)}"</strong> (${products.length} found)`;
+      } else {
+        searchStatus.hidden = true;
+      }
+    }
+
+    if (activeFilterTags) {
+      const tags = [];
+      if (activeFilters.category !== "all") {
+        tags.push(`
+          <span class="filter-tag">
+            Category: ${escapeHtml(activeFilters.category)}
+            <button type="button" data-remove-filter="category" title="Remove category filter">&times;</button>
+          </span>
+        `);
+      }
+      if (activeFilters.inStock) {
+        tags.push(`
+          <span class="filter-tag">
+            In Stock Only
+            <button type="button" data-remove-filter="instock" title="Show all items">&times;</button>
+          </span>
+        `);
+      }
+      if (activeFilters.search) {
+        tags.push(`
+          <span class="filter-tag">
+            Search: "${escapeHtml(activeFilters.search)}"
+            <button type="button" data-remove-filter="search" title="Clear search">&times;</button>
+          </span>
+        `);
+      }
+      if (activeFilters.sort !== "featured") {
+        const sortNames = {
+          price_asc: "Price: Low to High",
+          price_desc: "Price: High to Low",
+          name_asc: "Title: A to Z",
+          name_desc: "Title: Z to A",
+        };
+        tags.push(`
+          <span class="filter-tag">
+            Sort: ${sortNames[activeFilters.sort] || activeFilters.sort}
+            <button type="button" data-remove-filter="sort" title="Reset sort">&times;</button>
+          </span>
+        `);
+      }
+
+      if (tags.length > 0) {
+        activeFilterTags.hidden = false;
+        activeFilterTags.innerHTML = tags.join("");
+        activeFilterTags.querySelectorAll("[data-remove-filter]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const f = btn.getAttribute("data-remove-filter");
+            if (f === "category") {
+              activeFilters.category = "all";
+              if (filterCategory) filterCategory.value = "all";
+            } else if (f === "instock") {
+              activeFilters.inStock = false;
+              if (filterInStock) filterInStock.checked = false;
+            } else if (f === "search") {
+              activeFilters.search = "";
+              if (searchInput) searchInput.value = "";
+            } else if (f === "sort") {
+              activeFilters.sort = "featured";
+              if (filterSort) filterSort.value = "featured";
+            }
+            fetchProducts();
+          });
+        });
+      } else {
+        activeFilterTags.hidden = true;
+      }
+    }
+  }
+
+  function openProductDetail(p) {
+    if (!productDetailModal || !p) return;
+    currentDetailProduct = p;
+
+    if (detailProductType) detailProductType.textContent = (p.type === "book" ? "Book Details" : "Stationery Details");
+    if (detailProductTitle) detailProductTitle.textContent = p.title;
+    if (detailCoverTitle) detailCoverTitle.textContent = p.title;
+    if (detailCoverBox) {
+      detailCoverBox.className = `product-cover detail-cover ${p.cover_class || (p.type === 'stationery' ? 'cover-stat-1' : 'cover-book-1')}`;
+    }
+    if (detailSku) detailSku.textContent = `SKU: ${p.sku}`;
+    if (detailPrice) detailPrice.textContent = money(p.price);
+
+    if (detailDiscount) {
+      if (p.discount_price && p.discount_price > 0 && p.discount_price < p.price) {
+        detailDiscount.hidden = false;
+        detailDiscount.textContent = `Special student offer: Save ${money(p.price - p.discount_price)}`;
+      } else {
+        detailDiscount.hidden = true;
+      }
+    }
+
+    if (detailStockBadge) {
+      if (p.stock_quantity > 0) {
+        detailStockBadge.className = "stock-badge stock-ok";
+        detailStockBadge.textContent = `${p.stock_quantity} units available`;
+      } else {
+        detailStockBadge.className = "stock-badge stock-out";
+        detailStockBadge.textContent = "Currently Out of Stock";
+      }
+    }
+
+    if (detailDescription) detailDescription.textContent = p.description || "High-quality academic book or stationery item.";
+
+    if (detailMetaList) {
+      const items = [];
+      if (p.type === "book") {
+        if (p.author) items.push(`<dt>Author</dt><dd>${escapeHtml(p.author)}</dd>`);
+        if (p.category) items.push(`<dt>Category</dt><dd>${escapeHtml(p.category)}</dd>`);
+        if (p.isbn) items.push(`<dt>ISBN</dt><dd><code>${escapeHtml(p.isbn)}</code></dd>`);
+        if (p.publisher) items.push(`<dt>Publisher</dt><dd>${escapeHtml(p.publisher)}</dd>`);
+        if (p.edition) items.push(`<dt>Edition</dt><dd>${escapeHtml(p.edition)}</dd>`);
+        if (p.language) items.push(`<dt>Language</dt><dd>${escapeHtml(p.language)}</dd>`);
+      } else {
+        if (p.brand) items.push(`<dt>Brand</dt><dd>${escapeHtml(p.brand)}</dd>`);
+        if (p.category) items.push(`<dt>Category</dt><dd>${escapeHtml(p.category)}</dd>`);
+        if (p.color) items.push(`<dt>Color</dt><dd>${escapeHtml(p.color)}</dd>`);
+        if (p.size) items.push(`<dt>Size / Format</dt><dd>${escapeHtml(p.size)}</dd>`);
+        if (p.specifications) items.push(`<dt>Specs</dt><dd>${escapeHtml(p.specifications)}</dd>`);
+      }
+      detailMetaList.innerHTML = items.join("");
+    }
+
+    if (detailQtyInput) detailQtyInput.value = "1";
+    if (detailAddCartBtn) {
+      detailAddCartBtn.disabled = (p.stock_quantity <= 0);
+      detailAddCartBtn.textContent = (p.stock_quantity > 0 ? "Add to Cart" : "Out of Stock");
+    }
+
+    productDetailModal.showModal();
   }
 
   function cardMarkup(product) {
@@ -194,9 +413,12 @@
           <div class="stock-badge ${stockClass}">${stockLabel}</div>
           <div class="price-row">
             <p class="price">${money(product.price)}</p>
-            <button class="add-cart" type="button" data-add="${product.id}" ${product.stock_quantity <= 0 ? 'disabled' : ''}>
-              ${product.stock_quantity > 0 ? 'Add to Cart' : 'Out of Stock'}
-            </button>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="btn btn-xs btn-outline" type="button" data-detail="${product.id}" title="View full specifications">Details</button>
+              <button class="add-cart" type="button" data-add="${product.id}" ${product.stock_quantity <= 0 ? 'disabled' : ''}>
+                ${product.stock_quantity > 0 ? 'Add' : 'Out'}
+              </button>
+            </div>
           </div>
         </div>
       </article>
@@ -220,11 +442,11 @@
 
     booksGrid.innerHTML = books.length
       ? books.map(cardMarkup).join("")
-      : '<p class="empty-state">No books match your criteria.</p>';
+      : '<p class="empty-state">No books match your selected filters.</p>';
 
     stationeryGrid.innerHTML = stats.length
       ? stats.map(cardMarkup).join("")
-      : '<p class="empty-state">No stationery items match your criteria.</p>';
+      : '<p class="empty-state">No stationery items match your selected filters.</p>';
   }
 
   function cartQuantity(cart) {
@@ -313,25 +535,42 @@
     }
   }
 
-  function addToCart(id) {
+  function addToCart(id, requestedQty = 1) {
     const numId = Number(id) || id;
     const cart = readCart();
     const existing = cart.find((line) => line.id === numId);
 
     const product = products.find((item) => item.id === numId || item.sku === id);
-    if (product && product.stock_quantity <= 0) {
+    if (!product || product.stock_quantity <= 0) {
       showToast("Sorry, this item is out of stock!");
-      return;
+      return false;
     }
 
-    if (existing) {
-      existing.qty += 1;
+    const currentQtyInCart = existing ? existing.qty : 0;
+    if (currentQtyInCart + requestedQty > product.stock_quantity) {
+      const allowedAdd = Math.max(0, product.stock_quantity - currentQtyInCart);
+      if (allowedAdd <= 0) {
+        showToast(`Stock limit reached! Max available: ${product.stock_quantity}`);
+        return false;
+      }
+      if (existing) {
+        existing.qty = product.stock_quantity;
+      } else {
+        cart.push({ id: numId, qty: allowedAdd });
+      }
+      showToast(`Added ${allowedAdd} item(s). Max stock reached (${product.stock_quantity})`);
     } else {
-      cart.push({ id: numId, qty: 1 });
+      if (existing) {
+        existing.qty += requestedQty;
+      } else {
+        cart.push({ id: numId, qty: requestedQty });
+      }
+      showToast((product ? product.title : "Item") + " added to cart");
     }
+
     writeCart(cart);
     renderCart();
-    showToast((product ? product.title : "Item") + " added to cart");
+    return true;
   }
 
   function changeCartQty(id, delta) {
@@ -339,6 +578,12 @@
     let cart = readCart();
     const item = cart.find((x) => x.id === numId);
     if (!item) return;
+
+    const product = products.find((x) => x.id === numId || x.sku === id);
+    if (delta > 0 && product && item.qty + delta > product.stock_quantity) {
+      showToast(`Maximum available stock is ${product.stock_quantity} units.`);
+      return;
+    }
 
     item.qty += delta;
     if (item.qty <= 0) {
@@ -348,7 +593,7 @@
     renderCart();
   }
 
-  /* Orders History from SQLite */
+  /* Orders History from SQLite with Visual Tracking Progress Bar */
   async function loadOrders() {
     if (!ordersList) return;
     try {
@@ -356,12 +601,48 @@
       if (resp.ok) {
         const orders = await resp.json();
         if (Array.isArray(orders) && orders.length > 0) {
+          const stages = ["Pending", "Confirmed", "Processing", "Shipped", "Delivered"];
+
           ordersList.innerHTML = orders
             .map((order) => {
               const statusClass = `status-${(order.status || 'pending').toLowerCase()}`;
               const itemsList = (order.items || [])
                 .map((i) => `<li>${escapeHtml(i.title)} × ${i.quantity} (${money(i.line_total)})</li>`)
                 .join("");
+
+              const currentIdx = stages.indexOf(order.status);
+              const isCancelled = order.status === "Cancelled";
+
+              let trackerHtml = "";
+              if (!isCancelled) {
+                const progressPercent = currentIdx >= 0 ? (currentIdx / (stages.length - 1)) * 100 : 0;
+                const stepsHtml = stages
+                  .map((stage, idx) => {
+                    let stepClass = "";
+                    if (idx < currentIdx) stepClass = "completed";
+                    else if (idx === currentIdx) stepClass = "active";
+                    return `
+                      <div class="tracker-step ${stepClass}">
+                        <div class="step-dot">${idx < currentIdx ? '✓' : idx + 1}</div>
+                        <span class="step-name">${stage}</span>
+                      </div>
+                    `;
+                  })
+                  .join("");
+
+                trackerHtml = `
+                  <div class="order-tracker">
+                    <div class="tracker-track"><div class="tracker-progress" style="width: ${progressPercent}%;"></div></div>
+                    ${stepsHtml}
+                  </div>
+                `;
+              } else {
+                trackerHtml = `
+                  <div style="background:rgba(153,27,27,0.08);color:#991b1b;padding:8px 14px;border-radius:8px;font-size:0.85rem;font-weight:600;margin:12px 0;">
+                    Order Cancelled
+                  </div>
+                `;
+              }
 
               return `
                 <article class="order-card">
@@ -372,6 +653,7 @@
                     </div>
                     <span class="order-status-badge ${statusClass}">${escapeHtml(order.status)}</span>
                   </div>
+                  ${trackerHtml}
                   <div class="order-details-grid">
                     <div>
                       <p class="order-label">Recipient:</p>
@@ -481,6 +763,22 @@
       return;
     }
 
+    const detailBtn = event.target.closest("[data-detail]");
+    if (detailBtn) {
+      const prodId = Number(detailBtn.getAttribute("data-detail")) || detailBtn.getAttribute("data-detail");
+      const prod = products.find((p) => p.id === prodId || p.sku === prodId);
+      if (prod) openProductDetail(prod);
+      return;
+    }
+
+    const card = event.target.closest(".product-card");
+    if (card && !event.target.closest("button")) {
+      const prodId = Number(card.getAttribute("data-id")) || card.getAttribute("data-id");
+      const prod = products.find((p) => p.id === prodId || p.sku === prodId);
+      if (prod) openProductDetail(prod);
+      return;
+    }
+
     const remove = event.target.closest("[data-remove]");
     if (remove) {
       const id = remove.getAttribute("data-remove");
@@ -502,16 +800,106 @@
     }
   });
 
+  /* Detail Modal Listeners */
+  if (detailQtyDec) {
+    detailQtyDec.addEventListener("click", () => {
+      if (!detailQtyInput) return;
+      let val = parseInt(detailQtyInput.value, 10) || 1;
+      if (val > 1) {
+        detailQtyInput.value = String(val - 1);
+      }
+    });
+  }
+
+  if (detailQtyInc) {
+    detailQtyInc.addEventListener("click", () => {
+      if (!detailQtyInput || !currentDetailProduct) return;
+      let val = parseInt(detailQtyInput.value, 10) || 1;
+      if (val < currentDetailProduct.stock_quantity) {
+        detailQtyInput.value = String(val + 1);
+      } else {
+        showToast(`Maximum available stock is ${currentDetailProduct.stock_quantity}`);
+      }
+    });
+  }
+
+  if (detailAddCartBtn) {
+    detailAddCartBtn.addEventListener("click", () => {
+      if (!currentDetailProduct) return;
+      const qty = parseInt(detailQtyInput.value, 10) || 1;
+      addToCart(currentDetailProduct.id, qty);
+      if (productDetailModal) productDetailModal.close();
+    });
+  }
+
+  if (detailModalCloseBtn) {
+    detailModalCloseBtn.addEventListener("click", () => {
+      if (productDetailModal) productDetailModal.close();
+    });
+  }
+
+  if (productDetailModal) {
+    productDetailModal.addEventListener("click", (e) => {
+      const rect = productDetailModal.getBoundingClientRect();
+      const isInDialog = (rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+        rect.left <= e.clientX && e.clientX <= rect.left + rect.width);
+      if (!isInDialog) {
+        productDetailModal.close();
+      }
+    });
+  }
+
+  /* Catalog Filter & Sort Listeners */
+  if (filterCategory) {
+    filterCategory.addEventListener("change", () => {
+      activeFilters.category = filterCategory.value;
+      fetchProducts();
+    });
+  }
+
+  if (filterSort) {
+    filterSort.addEventListener("change", () => {
+      activeFilters.sort = filterSort.value;
+      fetchProducts();
+    });
+  }
+
+  if (filterInStock) {
+    filterInStock.addEventListener("change", () => {
+      activeFilters.inStock = filterInStock.checked;
+      fetchProducts();
+    });
+  }
+
+  if (btnResetFilters) {
+    btnResetFilters.addEventListener("click", () => {
+      activeFilters = {
+        category: "all",
+        sort: "featured",
+        inStock: false,
+        search: "",
+      };
+      if (filterCategory) filterCategory.value = "all";
+      if (filterSort) filterSort.value = "featured";
+      if (filterInStock) filterInStock.checked = false;
+      if (searchInput) searchInput.value = "";
+      fetchProducts();
+      showToast("Filters reset");
+    });
+  }
+
   if (searchForm && searchInput) {
     searchForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      fetchProducts(searchInput.value);
+      activeFilters.search = searchInput.value.trim();
+      fetchProducts();
       const booksEl = document.getElementById("books");
       if (booksEl) booksEl.scrollIntoView({ behavior: "smooth" });
     });
 
     searchInput.addEventListener("input", () => {
-      fetchProducts(searchInput.value);
+      activeFilters.search = searchInput.value.trim();
+      fetchProducts();
     });
   }
 
@@ -663,6 +1051,7 @@
   }
 
   /* Initialization */
+  loadCategories();
   fetchProducts();
   renderCart();
   checkAuth();

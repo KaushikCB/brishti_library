@@ -123,6 +123,41 @@
         </div>
       </section>
 
+      <!-- Catalog Controls: Filter, Search Status, Sort & Availability -->
+      <section class="section catalog-controls-section" id="catalog-controls">
+        <div class="catalog-toolbar">
+          <div class="toolbar-left">
+            <div class="filter-group">
+              <label for="filter-category" class="filter-label">Category:</label>
+              <select id="filter-category" class="filter-select">
+                <option value="all">All Categories</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="filter-sort" class="filter-label">Sort By:</label>
+              <select id="filter-sort" class="filter-select">
+                <option value="featured">Featured First</option>
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+                <option value="name_asc">Title: A to Z</option>
+                <option value="name_desc">Title: Z to A</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label class="filter-checkbox-label">
+                <input type="checkbox" id="filter-instock" />
+                <span>In Stock Only</span>
+              </label>
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <span class="catalog-count-badge" id="catalog-count-badge">Loading catalog…</span>
+            <button class="btn btn-sm btn-ghost" id="btn-reset-filters" type="button">Reset</button>
+          </div>
+        </div>
+        <div class="active-filter-tags" id="active-filter-tags" hidden></div>
+      </section>
+
       <section class="section" id="books">
         <div class="section-heading">
           <div>
@@ -219,6 +254,54 @@
         </div>
       </div>
     </aside>
+
+    <!-- Product Detail Modal Dialog -->
+    <dialog class="modal-dialog modal-detail-dialog" id="product-detail-modal">
+      <div class="modal-card detail-modal-card">
+        <div class="modal-head">
+          <div>
+            <span class="eyebrow" id="detail-product-type">Book Details</span>
+            <h2 id="detail-product-title">Product Title</h2>
+          </div>
+          <button type="button" class="icon-close" id="detail-modal-close-btn">&times;</button>
+        </div>
+        <div class="detail-modal-grid">
+          <div class="detail-cover-wrapper">
+            <div class="product-cover detail-cover" id="detail-cover-box">
+              <span id="detail-cover-title">Title</span>
+            </div>
+            <div class="detail-badges-row">
+              <span class="sku-pill" id="detail-sku">SKU: B001</span>
+              <span class="stock-badge" id="detail-stock-badge">In Stock</span>
+            </div>
+          </div>
+          <div class="detail-info-pane">
+            <div class="detail-price-box">
+              <span class="detail-price" id="detail-price">৳0</span>
+              <span class="detail-discount-note" id="detail-discount" hidden></span>
+            </div>
+            <p class="detail-desc" id="detail-description"></p>
+            
+            <div class="detail-meta-table">
+              <h4>Product Specifications</h4>
+              <dl class="meta-dl" id="detail-meta-list"></dl>
+            </div>
+
+            <div class="detail-action-box">
+              <div class="detail-qty-control">
+                <label for="detail-qty-input">Qty:</label>
+                <div class="cart-qty-row">
+                  <button type="button" class="btn-qty" id="detail-qty-dec">−</button>
+                  <input type="number" id="detail-qty-input" min="1" value="1" readonly class="qty-num-input" />
+                  <button type="button" class="btn-qty" id="detail-qty-inc">+</button>
+                </div>
+              </div>
+              <button type="button" class="btn btn-primary btn-block" id="detail-add-cart-btn">Add to Cart</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </dialog>
 
     <!-- Checkout Modal Dialog -->
     <dialog class="modal-dialog" id="checkout-modal">

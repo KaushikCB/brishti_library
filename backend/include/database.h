@@ -12,9 +12,10 @@ int db_init(const char *db_file_path);
 void db_close(void);
 
 /* Products API */
-char *db_get_products_json(const char *category, const char *search_q, const char *sort_by, const char *product_type);
+char *db_get_products_json(const char *category, const char *search_q, const char *sort_by, const char *product_type, const char *availability, double min_price, double max_price, int limit, int offset);
 char *db_get_product_by_id_json(int id);
 char *db_get_categories_json(void);
+char *db_admin_get_all_products_json(void);
 char *db_admin_create_product_json(const char *json_body);
 char *db_admin_update_product_json(int id, const char *json_body);
 char *db_admin_delete_product_json(int id);

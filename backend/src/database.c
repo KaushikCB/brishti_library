@@ -98,7 +98,12 @@ int db_init(const char *db_file_path) {
         "  line_total REAL NOT NULL,"
         "  FOREIGN KEY(order_id) REFERENCES orders(id),"
         "  FOREIGN KEY(product_id) REFERENCES products(id)"
-        ");";
+        ");"
+        "CREATE INDEX IF NOT EXISTS idx_products_type_cat ON products(type, category);"
+        "CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active);"
+        "CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);"
+        "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(session_token);"
+        "CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);";
 
     char *err_msg = NULL;
     rc = sqlite3_exec(g_db, schema_sql, NULL, NULL, &err_msg);
@@ -160,11 +165,14 @@ void db_close(void) {
 }
 
 /* Products API */
-char *db_get_products_json(const char *category, const char *search_q, const char *sort_by, const char *product_type) {
-    char sql[1024];
+char *db_get_products_json(const char *category, const char *search_q, const char *sort_by, 
+                           const char *product_type, const char *availability, 
+                           double min_price, double max_price, int limit, int offset) {
+    char sql[1536];
     snprintf(sql, sizeof(sql), 
              "SELECT id, sku, type, title, author, brand, category, description, price, "
-             "stock_quantity, cover_class, is_featured, is_active "
+             "stock_quantity, cover_class, is_featured, is_active, "
+             "isbn, publisher, edition, language, color, size, specifications, discount_price "
              "FROM products WHERE is_active = 1");
 
     if (product_type && strlen(product_type) > 0) {
@@ -173,8 +181,17 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
     if (category && strlen(category) > 0 && strcmp(category, "all") != 0) {
         strncat(sql, " AND category = ?", sizeof(sql) - strlen(sql) - 1);
     }
+    if (availability && strcmp(availability, "in_stock") == 0) {
+        strncat(sql, " AND stock_quantity > 0", sizeof(sql) - strlen(sql) - 1);
+    }
+    if (min_price > 0.0) {
+        strncat(sql, " AND price >= ?", sizeof(sql) - strlen(sql) - 1);
+    }
+    if (max_price > 0.0 && max_price >= min_price) {
+        strncat(sql, " AND price <= ?", sizeof(sql) - strlen(sql) - 1);
+    }
     if (search_q && strlen(search_q) > 0) {
-        strncat(sql, " AND (title LIKE ? OR author LIKE ? OR category LIKE ? OR sku LIKE ?)", sizeof(sql) - strlen(sql) - 1);
+        strncat(sql, " AND (title LIKE ? OR author LIKE ? OR category LIKE ? OR sku LIKE ? OR brand LIKE ? OR isbn LIKE ?)", sizeof(sql) - strlen(sql) - 1);
     }
 
     if (sort_by && strcmp(sort_by, "price_asc") == 0) {
@@ -183,8 +200,14 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
         strncat(sql, " ORDER BY price DESC", sizeof(sql) - strlen(sql) - 1);
     } else if (sort_by && strcmp(sort_by, "name_asc") == 0) {
         strncat(sql, " ORDER BY title ASC", sizeof(sql) - strlen(sql) - 1);
+    } else if (sort_by && strcmp(sort_by, "name_desc") == 0) {
+        strncat(sql, " ORDER BY title DESC", sizeof(sql) - strlen(sql) - 1);
     } else {
         strncat(sql, " ORDER BY is_featured DESC, id ASC", sizeof(sql) - strlen(sql) - 1);
+    }
+
+    if (limit > 0) {
+        strncat(sql, " LIMIT ? OFFSET ?", sizeof(sql) - strlen(sql) - 1);
     }
 
     sqlite3_stmt *stmt;
@@ -204,6 +227,12 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
     if (category && strlen(category) > 0 && strcmp(category, "all") != 0) {
         sqlite3_bind_text(stmt, bind_idx++, category, -1, SQLITE_STATIC);
     }
+    if (min_price > 0.0) {
+        sqlite3_bind_double(stmt, bind_idx++, min_price);
+    }
+    if (max_price > 0.0 && max_price >= min_price) {
+        sqlite3_bind_double(stmt, bind_idx++, max_price);
+    }
     char like_pattern[128] = "";
     if (search_q && strlen(search_q) > 0) {
         snprintf(like_pattern, sizeof(like_pattern), "%%%s%%", search_q);
@@ -211,6 +240,12 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
         sqlite3_bind_text(stmt, bind_idx++, like_pattern, -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, bind_idx++, like_pattern, -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, bind_idx++, like_pattern, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, bind_idx++, like_pattern, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, bind_idx++, like_pattern, -1, SQLITE_STATIC);
+    }
+    if (limit > 0) {
+        sqlite3_bind_int(stmt, bind_idx++, limit);
+        sqlite3_bind_int(stmt, bind_idx++, offset > 0 ? offset : 0);
     }
 
     cJSON *arr = cJSON_CreateArray();
@@ -236,6 +271,25 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
         const char *cov = (const char*)sqlite3_column_text(stmt, 10);
         cJSON_AddStringToObject(p, "cover_class", cov ? cov : "cover-book-1");
         cJSON_AddBoolToObject(p, "is_featured", sqlite3_column_int(stmt, 11));
+        cJSON_AddBoolToObject(p, "is_active", sqlite3_column_int(stmt, 12));
+
+        const char *isbn = (const char*)sqlite3_column_text(stmt, 13);
+        const char *pub = (const char*)sqlite3_column_text(stmt, 14);
+        const char *ed = (const char*)sqlite3_column_text(stmt, 15);
+        const char *lang = (const char*)sqlite3_column_text(stmt, 16);
+        const char *color = (const char*)sqlite3_column_text(stmt, 17);
+        const char *size = (const char*)sqlite3_column_text(stmt, 18);
+        const char *specs = (const char*)sqlite3_column_text(stmt, 19);
+        double disc_price = sqlite3_column_double(stmt, 20);
+
+        if (isbn && strlen(isbn) > 0) cJSON_AddStringToObject(p, "isbn", isbn);
+        if (pub && strlen(pub) > 0) cJSON_AddStringToObject(p, "publisher", pub);
+        if (ed && strlen(ed) > 0) cJSON_AddStringToObject(p, "edition", ed);
+        if (lang && strlen(lang) > 0) cJSON_AddStringToObject(p, "language", lang);
+        if (color && strlen(color) > 0) cJSON_AddStringToObject(p, "color", color);
+        if (size && strlen(size) > 0) cJSON_AddStringToObject(p, "size", size);
+        if (specs && strlen(specs) > 0) cJSON_AddStringToObject(p, "specifications", specs);
+        if (disc_price > 0.0) cJSON_AddNumberToObject(p, "discount_price", disc_price);
 
         /* Format display meta string matching frontend card expectations */
         char meta_buf[128];
@@ -813,3 +867,568 @@ char *db_admin_update_order_status_json(int order_id, const char *new_status) {
     cJSON_Delete(resp);
     return out;
 }
+
+char *db_admin_get_all_products_json(void) {
+    const char *sql = 
+        "SELECT id, sku, type, title, author, brand, category, description, price, "
+        "stock_quantity, cover_class, is_featured, is_active FROM products ORDER BY id DESC";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", sqlite3_errmsg(g_db));
+        char *s = cJSON_PrintUnformatted(err);
+        cJSON_Delete(err);
+        return s;
+    }
+
+    cJSON *arr = cJSON_CreateArray();
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        cJSON *p = cJSON_CreateObject();
+        cJSON_AddNumberToObject(p, "id", sqlite3_column_int(stmt, 0));
+        cJSON_AddStringToObject(p, "sku", (const char*)sqlite3_column_text(stmt, 1));
+        const char *type = (const char*)sqlite3_column_text(stmt, 2);
+        cJSON_AddStringToObject(p, "type", type ? type : "");
+        cJSON_AddStringToObject(p, "title", (const char*)sqlite3_column_text(stmt, 3));
+        const char *author = (const char*)sqlite3_column_text(stmt, 4);
+        const char *brand = (const char*)sqlite3_column_text(stmt, 5);
+        if (author) cJSON_AddStringToObject(p, "author", author);
+        if (brand) cJSON_AddStringToObject(p, "brand", brand);
+        const char *cat = (const char*)sqlite3_column_text(stmt, 6);
+        cJSON_AddStringToObject(p, "category", cat ? cat : "");
+        const char *desc = (const char*)sqlite3_column_text(stmt, 7);
+        cJSON_AddStringToObject(p, "description", desc ? desc : "");
+        cJSON_AddNumberToObject(p, "price", sqlite3_column_double(stmt, 8));
+        cJSON_AddNumberToObject(p, "stock_quantity", sqlite3_column_int(stmt, 9));
+        const char *cov = (const char*)sqlite3_column_text(stmt, 10);
+        cJSON_AddStringToObject(p, "cover_class", cov ? cov : "cover-book-1");
+        cJSON_AddBoolToObject(p, "is_featured", sqlite3_column_int(stmt, 11));
+        cJSON_AddBoolToObject(p, "is_active", sqlite3_column_int(stmt, 12));
+        cJSON_AddItemToArray(arr, p);
+    }
+    sqlite3_finalize(stmt);
+
+    char *out = cJSON_PrintUnformatted(arr);
+    cJSON_Delete(arr);
+    return out;
+}
+
+char *db_admin_create_product_json(const char *json_body) {
+    cJSON *resp = cJSON_CreateObject();
+    if (!json_body || strlen(json_body) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Request body is empty");
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    cJSON *root = cJSON_Parse(json_body);
+    if (!root) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid JSON syntax");
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    cJSON *title_item = cJSON_GetObjectItem(root, "title");
+    if (!title_item || !title_item->valuestring || strlen(title_item->valuestring) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Title is required and cannot be empty");
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    cJSON *cat_item = cJSON_GetObjectItem(root, "category");
+    if (!cat_item || !cat_item->valuestring || strlen(cat_item->valuestring) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Category is required and cannot be empty");
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    cJSON *price_item = cJSON_GetObjectItem(root, "price");
+    if (!price_item || !cJSON_IsNumber(price_item) || price_item->valuedouble <= 0.0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Price must be a positive number greater than 0");
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    cJSON *stock_item = cJSON_GetObjectItem(root, "stock_quantity");
+    int stock_val = 10;
+    if (stock_item && cJSON_IsNumber(stock_item)) {
+        stock_val = stock_item->valueint;
+        if (stock_val < 0) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Stock quantity cannot be negative");
+            cJSON_Delete(root);
+            char *out = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return out;
+        }
+    }
+
+    const char *prod_type = "book";
+    cJSON *type_item = cJSON_GetObjectItem(root, "type");
+    if (type_item && type_item->valuestring && strlen(type_item->valuestring) > 0) {
+        prod_type = type_item->valuestring;
+        if (strcmp(prod_type, "book") != 0 && strcmp(prod_type, "stationery") != 0) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Product type must be either 'book' or 'stationery'");
+            cJSON_Delete(root);
+            char *out = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return out;
+        }
+    }
+
+    /* Auto-generate unique SKU if not provided */
+    char final_sku[64] = "";
+    cJSON *sku_item = cJSON_GetObjectItem(root, "sku");
+    if (sku_item && sku_item->valuestring && strlen(sku_item->valuestring) > 0) {
+        strncpy(final_sku, sku_item->valuestring, sizeof(final_sku) - 1);
+    } else {
+        sqlite3_stmt *sku_stmt;
+        int max_id = 0;
+        if (sqlite3_prepare_v2(g_db, "SELECT MAX(id) FROM products", -1, &sku_stmt, NULL) == SQLITE_OK) {
+            if (sqlite3_step(sku_stmt) == SQLITE_ROW) {
+                max_id = sqlite3_column_int(sku_stmt, 0);
+            }
+            sqlite3_finalize(sku_stmt);
+        }
+        char prefix = (strcmp(prod_type, "stationery") == 0) ? 'S' : 'B';
+        snprintf(final_sku, sizeof(final_sku), "%c%03d", prefix, max_id + 1);
+
+        /* Ensure uniqueness */
+        sqlite3_prepare_v2(g_db, "SELECT COUNT(*) FROM products WHERE sku = ?", -1, &sku_stmt, NULL);
+        sqlite3_bind_text(sku_stmt, 1, final_sku, -1, SQLITE_STATIC);
+        int exists = 0;
+        if (sqlite3_step(sku_stmt) == SQLITE_ROW) exists = sqlite3_column_int(sku_stmt, 0);
+        sqlite3_finalize(sku_stmt);
+        if (exists > 0) {
+            snprintf(final_sku, sizeof(final_sku), "%c%03d-%u", prefix, max_id + 1, (unsigned)(time(NULL) % 1000));
+        }
+    }
+
+    cJSON *author_item = cJSON_GetObjectItem(root, "author");
+    const char *author_val = (author_item && author_item->valuestring) ? author_item->valuestring : "";
+
+    cJSON *isbn_item = cJSON_GetObjectItem(root, "isbn");
+    const char *isbn_val = (isbn_item && isbn_item->valuestring) ? isbn_item->valuestring : "";
+
+    cJSON *pub_item = cJSON_GetObjectItem(root, "publisher");
+    const char *pub_val = (pub_item && pub_item->valuestring) ? pub_item->valuestring : "";
+
+    cJSON *ed_item = cJSON_GetObjectItem(root, "edition");
+    const char *ed_val = (ed_item && ed_item->valuestring) ? ed_item->valuestring : "";
+
+    cJSON *lang_item = cJSON_GetObjectItem(root, "language");
+    const char *lang_val = (lang_item && lang_item->valuestring) ? lang_item->valuestring : "English";
+
+    cJSON *brand_item = cJSON_GetObjectItem(root, "brand");
+    const char *brand_val = (brand_item && brand_item->valuestring) ? brand_item->valuestring : "";
+
+    cJSON *color_item = cJSON_GetObjectItem(root, "color");
+    const char *color_val = (color_item && color_item->valuestring) ? color_item->valuestring : "";
+
+    cJSON *size_item = cJSON_GetObjectItem(root, "size");
+    const char *size_val = (size_item && size_item->valuestring) ? size_item->valuestring : "";
+
+    cJSON *specs_item = cJSON_GetObjectItem(root, "specifications");
+    const char *specs_val = (specs_item && specs_item->valuestring) ? specs_item->valuestring : "";
+
+    cJSON *desc_item = cJSON_GetObjectItem(root, "description");
+    const char *desc_val = (desc_item && desc_item->valuestring) ? desc_item->valuestring : "";
+
+    cJSON *disc_item = cJSON_GetObjectItem(root, "discount_price");
+    double disc_val = (disc_item && cJSON_IsNumber(disc_item)) ? disc_item->valuedouble : 0.0;
+
+    cJSON *cov_item = cJSON_GetObjectItem(root, "cover_class");
+    const char *cov_val = (cov_item && cov_item->valuestring && strlen(cov_item->valuestring) > 0)
+                            ? cov_item->valuestring
+                            : ((strcmp(prod_type, "stationery") == 0) ? "cover-stat-1" : "cover-book-1");
+
+    cJSON *feat_item = cJSON_GetObjectItem(root, "is_featured");
+    int feat_val = (feat_item && cJSON_IsBool(feat_item)) ? (cJSON_IsTrue(feat_item) ? 1 : 0) : 0;
+
+    const char *ins_sql = 
+        "INSERT INTO products (sku, type, title, author, isbn, publisher, edition, language, "
+        "brand, color, size, specifications, category, description, price, discount_price, "
+        "stock_quantity, cover_class, is_featured, is_active) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)";
+
+    sqlite3_stmt *stmt;
+    int rc = sqlite3_prepare_v2(g_db, ins_sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", sqlite3_errmsg(g_db));
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    sqlite3_bind_text(stmt, 1, final_sku, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, prod_type, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, title_item->valuestring, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, author_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, isbn_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 6, pub_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 7, ed_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 8, lang_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 9, brand_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 10, color_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 11, size_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 12, specs_val, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 13, cat_item->valuestring, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 14, desc_val, -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 15, price_item->valuedouble);
+    sqlite3_bind_double(stmt, 16, disc_val);
+    sqlite3_bind_int(stmt, 17, stock_val);
+    sqlite3_bind_text(stmt, 18, cov_val, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 19, feat_val);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    cJSON_Delete(root);
+
+    if (rc == SQLITE_DONE) {
+        int new_id = (int)sqlite3_last_insert_rowid(g_db);
+        cJSON_AddStringToObject(resp, "status", "success");
+        cJSON_AddStringToObject(resp, "message", "Product created successfully");
+        cJSON_AddNumberToObject(resp, "id", new_id);
+        cJSON_AddStringToObject(resp, "sku", final_sku);
+    } else {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", sqlite3_errmsg(g_db));
+    }
+
+    char *out = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return out;
+}
+
+char *db_admin_update_product_json(int id, const char *json_body) {
+    cJSON *resp = cJSON_CreateObject();
+    if (!json_body || strlen(json_body) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Request body is empty");
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    cJSON *root = cJSON_Parse(json_body);
+    if (!root) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid JSON syntax");
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    /* Retrieve existing product record */
+    const char *sel_sql = 
+        "SELECT sku, type, title, author, isbn, publisher, edition, language, brand, "
+        "color, size, specifications, category, description, price, discount_price, "
+        "stock_quantity, cover_class, is_featured, is_active FROM products WHERE id = ?";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(g_db, sel_sql, -1, &stmt, NULL) != SQLITE_OK) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Database error");
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Product not found");
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    /* Read current values into local buffers */
+    char cur_sku[64] = "";
+    char cur_type[32] = "";
+    char cur_title[256] = "";
+    char cur_author[128] = "";
+    char cur_isbn[64] = "";
+    char cur_pub[128] = "";
+    char cur_ed[64] = "";
+    char cur_lang[32] = "";
+    char cur_brand[128] = "";
+    char cur_color[64] = "";
+    char cur_size[64] = "";
+    char cur_specs[256] = "";
+    char cur_cat[128] = "";
+    char cur_desc[1024] = "";
+    char cur_cov[64] = "";
+
+    if (sqlite3_column_text(stmt, 0)) strncpy(cur_sku, (const char*)sqlite3_column_text(stmt, 0), sizeof(cur_sku) - 1);
+    if (sqlite3_column_text(stmt, 1)) strncpy(cur_type, (const char*)sqlite3_column_text(stmt, 1), sizeof(cur_type) - 1);
+    if (sqlite3_column_text(stmt, 2)) strncpy(cur_title, (const char*)sqlite3_column_text(stmt, 2), sizeof(cur_title) - 1);
+    if (sqlite3_column_text(stmt, 3)) strncpy(cur_author, (const char*)sqlite3_column_text(stmt, 3), sizeof(cur_author) - 1);
+    if (sqlite3_column_text(stmt, 4)) strncpy(cur_isbn, (const char*)sqlite3_column_text(stmt, 4), sizeof(cur_isbn) - 1);
+    if (sqlite3_column_text(stmt, 5)) strncpy(cur_pub, (const char*)sqlite3_column_text(stmt, 5), sizeof(cur_pub) - 1);
+    if (sqlite3_column_text(stmt, 6)) strncpy(cur_ed, (const char*)sqlite3_column_text(stmt, 6), sizeof(cur_ed) - 1);
+    if (sqlite3_column_text(stmt, 7)) strncpy(cur_lang, (const char*)sqlite3_column_text(stmt, 7), sizeof(cur_lang) - 1);
+    if (sqlite3_column_text(stmt, 8)) strncpy(cur_brand, (const char*)sqlite3_column_text(stmt, 8), sizeof(cur_brand) - 1);
+    if (sqlite3_column_text(stmt, 9)) strncpy(cur_color, (const char*)sqlite3_column_text(stmt, 9), sizeof(cur_color) - 1);
+    if (sqlite3_column_text(stmt, 10)) strncpy(cur_size, (const char*)sqlite3_column_text(stmt, 10), sizeof(cur_size) - 1);
+    if (sqlite3_column_text(stmt, 11)) strncpy(cur_specs, (const char*)sqlite3_column_text(stmt, 11), sizeof(cur_specs) - 1);
+    if (sqlite3_column_text(stmt, 12)) strncpy(cur_cat, (const char*)sqlite3_column_text(stmt, 12), sizeof(cur_cat) - 1);
+    if (sqlite3_column_text(stmt, 13)) strncpy(cur_desc, (const char*)sqlite3_column_text(stmt, 13), sizeof(cur_desc) - 1);
+    double cur_price = sqlite3_column_double(stmt, 14);
+    double cur_disc = sqlite3_column_double(stmt, 15);
+    int cur_stock = sqlite3_column_int(stmt, 16);
+    if (sqlite3_column_text(stmt, 17)) strncpy(cur_cov, (const char*)sqlite3_column_text(stmt, 17), sizeof(cur_cov) - 1);
+    int cur_feat = sqlite3_column_int(stmt, 18);
+    int cur_active = sqlite3_column_int(stmt, 19);
+
+    sqlite3_finalize(stmt);
+
+    /* Apply overrides and validate */
+    cJSON *title_item = cJSON_GetObjectItem(root, "title");
+    if (title_item && title_item->valuestring) {
+        if (strlen(title_item->valuestring) == 0) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Title cannot be empty");
+            cJSON_Delete(root);
+            char *out = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return out;
+        }
+        strncpy(cur_title, title_item->valuestring, sizeof(cur_title) - 1);
+    }
+
+    cJSON *cat_item = cJSON_GetObjectItem(root, "category");
+    if (cat_item && cat_item->valuestring && strlen(cat_item->valuestring) > 0) {
+        strncpy(cur_cat, cat_item->valuestring, sizeof(cur_cat) - 1);
+    }
+
+    cJSON *price_item = cJSON_GetObjectItem(root, "price");
+    if (price_item && cJSON_IsNumber(price_item)) {
+        if (price_item->valuedouble < 0.0) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Price cannot be negative");
+            cJSON_Delete(root);
+            char *out = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return out;
+        }
+        cur_price = price_item->valuedouble;
+    }
+
+    cJSON *disc_item = cJSON_GetObjectItem(root, "discount_price");
+    if (disc_item && cJSON_IsNumber(disc_item)) {
+        if (disc_item->valuedouble < 0.0) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Discount price cannot be negative");
+            cJSON_Delete(root);
+            char *out = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return out;
+        }
+        cur_disc = disc_item->valuedouble;
+    }
+
+    cJSON *stock_item = cJSON_GetObjectItem(root, "stock_quantity");
+    if (stock_item && cJSON_IsNumber(stock_item)) {
+        if (stock_item->valueint < 0) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Stock quantity cannot be negative");
+            cJSON_Delete(root);
+            char *out = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return out;
+        }
+        cur_stock = stock_item->valueint;
+    }
+
+    cJSON *type_item = cJSON_GetObjectItem(root, "type");
+    if (type_item && type_item->valuestring && strlen(type_item->valuestring) > 0) {
+        if (strcmp(type_item->valuestring, "book") == 0 || strcmp(type_item->valuestring, "stationery") == 0) {
+            strncpy(cur_type, type_item->valuestring, sizeof(cur_type) - 1);
+        }
+    }
+
+    cJSON *author_item = cJSON_GetObjectItem(root, "author");
+    if (author_item && author_item->valuestring) strncpy(cur_author, author_item->valuestring, sizeof(cur_author) - 1);
+
+    cJSON *isbn_item = cJSON_GetObjectItem(root, "isbn");
+    if (isbn_item && isbn_item->valuestring) strncpy(cur_isbn, isbn_item->valuestring, sizeof(cur_isbn) - 1);
+
+    cJSON *pub_item = cJSON_GetObjectItem(root, "publisher");
+    if (pub_item && pub_item->valuestring) strncpy(cur_pub, pub_item->valuestring, sizeof(cur_pub) - 1);
+
+    cJSON *ed_item = cJSON_GetObjectItem(root, "edition");
+    if (ed_item && ed_item->valuestring) strncpy(cur_ed, ed_item->valuestring, sizeof(cur_ed) - 1);
+
+    cJSON *brand_item = cJSON_GetObjectItem(root, "brand");
+    if (brand_item && brand_item->valuestring) strncpy(cur_brand, brand_item->valuestring, sizeof(cur_brand) - 1);
+
+    cJSON *desc_item = cJSON_GetObjectItem(root, "description");
+    if (desc_item && desc_item->valuestring) strncpy(cur_desc, desc_item->valuestring, sizeof(cur_desc) - 1);
+
+    cJSON *cov_item = cJSON_GetObjectItem(root, "cover_class");
+    if (cov_item && cov_item->valuestring && strlen(cov_item->valuestring) > 0) {
+        strncpy(cur_cov, cov_item->valuestring, sizeof(cur_cov) - 1);
+    }
+
+    cJSON *feat_item = cJSON_GetObjectItem(root, "is_featured");
+    if (feat_item) {
+        if (cJSON_IsBool(feat_item)) cur_feat = cJSON_IsTrue(feat_item) ? 1 : 0;
+        else if (cJSON_IsNumber(feat_item)) cur_feat = feat_item->valueint ? 1 : 0;
+    }
+
+    cJSON *act_item = cJSON_GetObjectItem(root, "is_active");
+    if (act_item) {
+        if (cJSON_IsBool(act_item)) cur_active = cJSON_IsTrue(act_item) ? 1 : 0;
+        else if (cJSON_IsNumber(act_item)) cur_active = act_item->valueint ? 1 : 0;
+    }
+
+    const char *upd_sql = 
+        "UPDATE products SET sku = ?, type = ?, title = ?, author = ?, isbn = ?, "
+        "publisher = ?, edition = ?, language = ?, brand = ?, color = ?, size = ?, "
+        "specifications = ?, category = ?, description = ?, price = ?, discount_price = ?, "
+        "stock_quantity = ?, cover_class = ?, is_featured = ?, is_active = ? WHERE id = ?";
+
+    sqlite3_stmt *upd_stmt;
+    int rc = sqlite3_prepare_v2(g_db, upd_sql, -1, &upd_stmt, NULL);
+    if (rc != SQLITE_OK) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", sqlite3_errmsg(g_db));
+        cJSON_Delete(root);
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+
+    sqlite3_bind_text(upd_stmt, 1, cur_sku, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 2, cur_type, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 3, cur_title, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 4, cur_author, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 5, cur_isbn, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 6, cur_pub, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 7, cur_ed, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 8, cur_lang, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 9, cur_brand, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 10, cur_color, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 11, cur_size, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 12, cur_specs, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 13, cur_cat, -1, SQLITE_STATIC);
+    sqlite3_bind_text(upd_stmt, 14, cur_desc, -1, SQLITE_STATIC);
+    sqlite3_bind_double(upd_stmt, 15, cur_price);
+    sqlite3_bind_double(upd_stmt, 16, cur_disc);
+    sqlite3_bind_int(upd_stmt, 17, cur_stock);
+    sqlite3_bind_text(upd_stmt, 18, cur_cov, -1, SQLITE_STATIC);
+    sqlite3_bind_int(upd_stmt, 19, cur_feat);
+    sqlite3_bind_int(upd_stmt, 20, cur_active);
+    sqlite3_bind_int(upd_stmt, 21, id);
+
+    rc = sqlite3_step(upd_stmt);
+    sqlite3_finalize(upd_stmt);
+    cJSON_Delete(root);
+
+    if (rc == SQLITE_DONE) {
+        cJSON_AddStringToObject(resp, "status", "success");
+        cJSON_AddStringToObject(resp, "message", "Product updated successfully");
+        cJSON_AddNumberToObject(resp, "id", id);
+        cJSON_AddNumberToObject(resp, "stock_quantity", cur_stock);
+        cJSON_AddNumberToObject(resp, "price", cur_price);
+        cJSON_AddBoolToObject(resp, "is_active", cur_active);
+    } else {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", sqlite3_errmsg(g_db));
+    }
+
+    char *out = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return out;
+}
+
+char *db_admin_delete_product_json(int id) {
+    cJSON *resp = cJSON_CreateObject();
+
+    /* Verify product exists */
+    sqlite3_stmt *chk_stmt;
+    sqlite3_prepare_v2(g_db, "SELECT id, title, is_active FROM products WHERE id = ?", -1, &chk_stmt, NULL);
+    sqlite3_bind_int(chk_stmt, 1, id);
+    if (sqlite3_step(chk_stmt) != SQLITE_ROW) {
+        sqlite3_finalize(chk_stmt);
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Product not found");
+        char *out = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return out;
+    }
+    int cur_active = sqlite3_column_int(chk_stmt, 2);
+    sqlite3_finalize(chk_stmt);
+
+    /* Check if product is referenced in order_items */
+    sqlite3_stmt *ref_stmt;
+    sqlite3_prepare_v2(g_db, "SELECT COUNT(*) FROM order_items WHERE product_id = ?", -1, &ref_stmt, NULL);
+    sqlite3_bind_int(ref_stmt, 1, id);
+    int ref_count = 0;
+    if (sqlite3_step(ref_stmt) == SQLITE_ROW) {
+        ref_count = sqlite3_column_int(ref_stmt, 0);
+    }
+    sqlite3_finalize(ref_stmt);
+
+    if (ref_count > 0) {
+        /* If associated with orders, toggle or deactivate to preserve foreign key relational integrity */
+        int next_active = (cur_active == 1) ? 0 : 1;
+        sqlite3_stmt *upd_stmt;
+        sqlite3_prepare_v2(g_db, "UPDATE products SET is_active = ? WHERE id = ?", -1, &upd_stmt, NULL);
+        sqlite3_bind_int(upd_stmt, 1, next_active);
+        sqlite3_bind_int(upd_stmt, 2, id);
+        sqlite3_step(upd_stmt);
+        sqlite3_finalize(upd_stmt);
+
+        cJSON_AddStringToObject(resp, "status", "success");
+        cJSON_AddStringToObject(resp, "message", (next_active == 0) ? "Product deactivated (referenced in order history)" : "Product reactivated");
+        cJSON_AddBoolToObject(resp, "is_active", next_active);
+    } else {
+        /* No orders reference this product; perform safe deletion */
+        sqlite3_stmt *del_stmt;
+        sqlite3_prepare_v2(g_db, "DELETE FROM products WHERE id = ?", -1, &del_stmt, NULL);
+        sqlite3_bind_int(del_stmt, 1, id);
+        int rc = sqlite3_step(del_stmt);
+        sqlite3_finalize(del_stmt);
+
+        if (rc == SQLITE_DONE) {
+            cJSON_AddStringToObject(resp, "status", "success");
+            cJSON_AddStringToObject(resp, "message", "Product deleted successfully");
+            cJSON_AddBoolToObject(resp, "deleted", true);
+        } else {
+            /* Fallback to deactivation */
+            sqlite3_stmt *upd_stmt;
+            sqlite3_prepare_v2(g_db, "UPDATE products SET is_active = 0 WHERE id = ?", -1, &upd_stmt, NULL);
+            sqlite3_bind_int(upd_stmt, 1, id);
+            sqlite3_step(upd_stmt);
+            sqlite3_finalize(upd_stmt);
+
+            cJSON_AddStringToObject(resp, "status", "success");
+            cJSON_AddStringToObject(resp, "message", "Product deactivated");
+            cJSON_AddBoolToObject(resp, "is_active", 0);
+        }
+    }
+
+    char *out = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return out;
+}
+

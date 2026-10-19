@@ -1072,3 +1072,350 @@ address {
   margin-top: 8px;
 }
 
+/* === Catalog Toolbar & Filters === */
+.catalog-controls-section {
+  padding-top: 24px;
+  padding-bottom: 8px;
+}
+
+.catalog-toolbar {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  box-shadow: 0 2px 10px rgba(28, 36, 48, 0.04);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.filter-select {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--burgundy);
+}
+
+.filter-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.catalog-count-badge {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.active-filter-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0 4px;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(143, 45, 58, 0.08);
+  border: 1px solid rgba(143, 45, 58, 0.2);
+  color: var(--burgundy);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.filter-tag button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* === Product Detail Modal === */
+.modal-detail-dialog {
+  max-width: 720px;
+}
+
+.detail-modal-card {
+  padding: 28px;
+}
+
+.detail-modal-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 24px;
+  margin-top: 14px;
+}
+
+@media (max-width: 640px) {
+  .detail-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-cover-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detail-cover {
+  height: 240px;
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.detail-badges-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.sku-pill {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--ink-soft);
+}
+
+.detail-info-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.detail-price-box {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.detail-price {
+  font-family: var(--font-serif);
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--burgundy);
+}
+
+.detail-discount-note {
+  font-size: 0.85rem;
+  color: var(--forest);
+  font-weight: 600;
+}
+
+.detail-desc {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--ink);
+  margin: 0;
+}
+
+.detail-meta-table {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.detail-meta-table h4 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.meta-dl {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  row-gap: 6px;
+  column-gap: 12px;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.meta-dl dt {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.meta-dl dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.detail-action-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.detail-qty-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.qty-num-input {
+  width: 44px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px;
+  font-family: inherit;
+  font-weight: 700;
+  background: var(--white);
+}
+
+/* === Order Tracking Progress Bar === */
+.order-tracker {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 16px 0 20px;
+  position: relative;
+  padding: 0 10px;
+}
+
+.tracker-track {
+  position: absolute;
+  top: 14px;
+  left: 24px;
+  right: 24px;
+  height: 3px;
+  background: var(--line);
+  z-index: 1;
+}
+
+.tracker-progress {
+  height: 100%;
+  background: var(--forest);
+  transition: width 0.3s ease;
+}
+
+.tracker-step {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: 2px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  transition: all 0.2s ease;
+}
+
+.step-name {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.tracker-step.completed .step-dot {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: var(--cream);
+}
+
+.tracker-step.completed .step-name {
+  color: var(--forest);
+}
+
+.tracker-step.active .step-dot {
+  background: var(--cream);
+  border-color: var(--burgundy);
+  color: var(--burgundy);
+  box-shadow: 0 0 0 3px rgba(143, 45, 58, 0.2);
+}
+
+.tracker-step.active .step-name {
+  color: var(--burgundy);
+  font-weight: 700;
+}
+
+.product-card {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(28, 36, 48, 0.08);
+}
+
+
