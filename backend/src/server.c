@@ -556,6 +556,7 @@ static void handle_client(SOCKET sock, const char *web_root) {
     else if (strcmp(path, "/api/admin/setup-status") == 0 && strcmp(method, "GET") == 0) {
         int done = db_admin_is_setup_completed();
         cJSON *st = cJSON_CreateObject();
+        cJSON_AddStringToObject(st, "status", "success");
         cJSON_AddBoolToObject(st, "setup_completed", done ? true : false);
         char *s = cJSON_PrintUnformatted(st);
         send_json_response(sock, 200, s, NULL);
@@ -563,10 +564,11 @@ static void handle_client(SOCKET sock, const char *web_root) {
         free(s);
     } else if (strcmp(path, "/api/admin/setup") == 0 && strcmp(method, "POST") == 0) {
         cJSON *req = cJSON_Parse(body);
-        const char *email = "admin@brishtilibrary.edu";
+        const char *email = "admin";
         const char *pw = "";
         if (req) {
-            cJSON *em = cJSON_GetObjectItem(req, "email");
+            cJSON *em = cJSON_GetObjectItem(req, "username");
+            if (!em) em = cJSON_GetObjectItem(req, "email");
             cJSON *p = cJSON_GetObjectItem(req, "password");
             if (em && em->valuestring && strlen(em->valuestring) > 0) email = em->valuestring;
             if (p && p->valuestring) pw = p->valuestring;
@@ -592,7 +594,8 @@ static void handle_client(SOCKET sock, const char *web_root) {
         const char *email = "";
         const char *pw = "";
         if (req) {
-            cJSON *em = cJSON_GetObjectItem(req, "email");
+            cJSON *em = cJSON_GetObjectItem(req, "username");
+            if (!em) em = cJSON_GetObjectItem(req, "email");
             cJSON *p = cJSON_GetObjectItem(req, "password");
             if (em && em->valuestring) email = em->valuestring;
             if (p && p->valuestring) pw = p->valuestring;
