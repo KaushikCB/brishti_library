@@ -8,6 +8,9 @@ Write-Host "====================================================" -ForegroundCol
 # 1. Backup database
 Copy-Item "database/brishti.db" "database/brishti_test_backup.db" -Force
 
+# Reset admin user so test starts in initial first-time setup state
+& python scratch/reset_admin.py
+
 $passed = 0
 $failed = 0
 
@@ -163,9 +166,10 @@ try {
     }
 
     # Create product with image_url
+    $testSku = "TEST-IMG-" + (Get-Random -Minimum 10000 -Maximum 99999)
     $prodWithImg = @{
         type = "book"
-        sku = "TEST-IMG-001"
+        sku = $testSku
         title = "Algorithms with Image Test"
         category = "Computer Science"
         price = 650.0
@@ -181,7 +185,7 @@ try {
 
     # Verify product in catalog returns image_url
     $allProds = Invoke-RestMethod -Uri "$baseUrl/api/admin/products" -UseBasicParsing -WebSession $adminSession
-    $savedProd = $allProds | Where-Object { $_.sku -eq "TEST-IMG-001" } | Select-Object -First 1
+    $savedProd = $allProds | Where-Object { $_.sku -eq $testSku } | Select-Object -First 1
     Assert-Test "Product in catalog retains image_url" ($savedProd.image_url -eq $uploadedUrl)
 
     # --- FEATURE 4: WARM BLUE THEMES ---
@@ -213,11 +217,13 @@ try {
     # --- REGRESSION CHECK: STOREFRONT CART & CSE214 ALGORITHMS ---
     Write-Host "`n--- Testing Regression: Storefront & Algorithms ---" -ForegroundColor Yellow
     
-    $algoSortRes = Invoke-RestMethod -Uri "$baseUrl/api/algorithms/sort?algorithm=quick&size=10"
+    $sortPayload = @{ algorithm = "quick"; array = @(9, 3, 7, 1, 8, 2, 5, 4, 6) } | ConvertTo-Json
+    $algoSortRes = Invoke-RestMethod -Uri "$baseUrl/api/algorithms/sort" -Method Post -Body $sortPayload -ContentType "application/json" -UseBasicParsing
     Assert-Test "C Algorithm Quick Sort API works" ($algoSortRes.status -eq "success" -and $algoSortRes.comparisons -gt 0)
 
-    $algoDijkstraRes = Invoke-RestMethod -Uri "$baseUrl/api/algorithms/dijkstra?source=0"
-    Assert-Test "C Algorithm Dijkstra API works" ($algoDijkstraRes.status -eq "success" -and $algoDijkstraRes.nodes.Count -gt 0)
+    $dijkstraPayload = @{ source_node = 0 } | ConvertTo-Json
+    $algoDijkstraRes = Invoke-RestMethod -Uri "$baseUrl/api/algorithms/graph/shortest-path" -Method Post -Body $dijkstraPayload -ContentType "application/json" -UseBasicParsing
+    Assert-Test "C Algorithm Dijkstra API works" ($algoDijkstraRes.status -eq "success" -and $algoDijkstraRes.locations.Count -gt 0)
 
 } finally {
     # Clean up server process
@@ -229,6 +235,7 @@ try {
         Copy-Item "database/brishti_test_backup.db" "database/brishti.db" -Force
         Remove-Item "database/brishti_test_backup.db" -Force
     }
+    & python scratch/reset_admin.py
 }
 
 Write-Host "`n====================================================" -ForegroundColor Cyan

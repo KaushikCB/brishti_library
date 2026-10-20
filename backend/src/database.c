@@ -208,7 +208,7 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
     snprintf(sql, sizeof(sql), 
              "SELECT id, sku, type, title, author, brand, category, description, price, "
              "stock_quantity, cover_class, is_featured, is_active, "
-             "isbn, publisher, edition, language, color, size, specifications, discount_price "
+             "isbn, publisher, edition, language, color, size, specifications, discount_price, image_url "
              "FROM products WHERE is_active = 1");
 
     if (product_type && strlen(product_type) > 0) {
@@ -1134,7 +1134,7 @@ char *db_admin_update_order_status_json(int order_id, const char *new_status) {
 char *db_admin_get_all_products_json(void) {
     const char *sql = 
         "SELECT id, sku, type, title, author, brand, category, description, price, "
-        "stock_quantity, cover_class, is_featured, is_active FROM products ORDER BY id DESC";
+        "stock_quantity, cover_class, is_featured, is_active, image_url FROM products ORDER BY id DESC";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
         cJSON *err = cJSON_CreateObject();
@@ -1166,6 +1166,8 @@ char *db_admin_get_all_products_json(void) {
         cJSON_AddStringToObject(p, "cover_class", cov ? cov : "cover-book-1");
         cJSON_AddBoolToObject(p, "is_featured", sqlite3_column_int(stmt, 11));
         cJSON_AddBoolToObject(p, "is_active", sqlite3_column_int(stmt, 12));
+        const char *img_url = (const char*)sqlite3_column_text(stmt, 13);
+        cJSON_AddStringToObject(p, "image_url", img_url ? img_url : "");
         cJSON_AddItemToArray(arr, p);
     }
     sqlite3_finalize(stmt);
@@ -1321,11 +1323,14 @@ char *db_admin_create_product_json(const char *json_body) {
     cJSON *feat_item = cJSON_GetObjectItem(root, "is_featured");
     int feat_val = (feat_item && cJSON_IsBool(feat_item)) ? (cJSON_IsTrue(feat_item) ? 1 : 0) : 0;
 
+    cJSON *img_item = cJSON_GetObjectItem(root, "image_url");
+    const char *img_val = (img_item && img_item->valuestring) ? img_item->valuestring : "";
+
     const char *ins_sql = 
         "INSERT INTO products (sku, type, title, author, isbn, publisher, edition, language, "
         "brand, color, size, specifications, category, description, price, discount_price, "
-        "stock_quantity, cover_class, is_featured, is_active) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)";
+        "stock_quantity, cover_class, is_featured, is_active, image_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)";
 
     sqlite3_stmt *stmt;
     int rc = sqlite3_prepare_v2(g_db, ins_sql, -1, &stmt, NULL);
@@ -1357,6 +1362,7 @@ char *db_admin_create_product_json(const char *json_body) {
     sqlite3_bind_int(stmt, 17, stock_val);
     sqlite3_bind_text(stmt, 18, cov_val, -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 19, feat_val);
+    sqlite3_bind_text(stmt, 20, img_val, -1, SQLITE_STATIC);
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1401,7 +1407,7 @@ char *db_admin_update_product_json(int id, const char *json_body) {
     const char *sel_sql = 
         "SELECT sku, type, title, author, isbn, publisher, edition, language, brand, "
         "color, size, specifications, category, description, price, discount_price, "
-        "stock_quantity, cover_class, is_featured, is_active FROM products WHERE id = ?";
+        "stock_quantity, cover_class, is_featured, is_active, image_url FROM products WHERE id = ?";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(g_db, sel_sql, -1, &stmt, NULL) != SQLITE_OK) {
         cJSON_AddStringToObject(resp, "status", "error");
@@ -1439,6 +1445,7 @@ char *db_admin_update_product_json(int id, const char *json_body) {
     char cur_cat[128] = "";
     char cur_desc[1024] = "";
     char cur_cov[64] = "";
+    char cur_img[256] = "";
 
     if (sqlite3_column_text(stmt, 0)) strncpy(cur_sku, (const char*)sqlite3_column_text(stmt, 0), sizeof(cur_sku) - 1);
     if (sqlite3_column_text(stmt, 1)) strncpy(cur_type, (const char*)sqlite3_column_text(stmt, 1), sizeof(cur_type) - 1);
@@ -1460,6 +1467,7 @@ char *db_admin_update_product_json(int id, const char *json_body) {
     if (sqlite3_column_text(stmt, 17)) strncpy(cur_cov, (const char*)sqlite3_column_text(stmt, 17), sizeof(cur_cov) - 1);
     int cur_feat = sqlite3_column_int(stmt, 18);
     int cur_active = sqlite3_column_int(stmt, 19);
+    if (sqlite3_column_text(stmt, 20)) strncpy(cur_img, (const char*)sqlite3_column_text(stmt, 20), sizeof(cur_img) - 1);
 
     sqlite3_finalize(stmt);
 
@@ -1563,11 +1571,16 @@ char *db_admin_update_product_json(int id, const char *json_body) {
         else if (cJSON_IsNumber(act_item)) cur_active = act_item->valueint ? 1 : 0;
     }
 
+    cJSON *img_item = cJSON_GetObjectItem(root, "image_url");
+    if (img_item && img_item->valuestring) {
+        strncpy(cur_img, img_item->valuestring, sizeof(cur_img) - 1);
+    }
+
     const char *upd_sql = 
         "UPDATE products SET sku = ?, type = ?, title = ?, author = ?, isbn = ?, "
         "publisher = ?, edition = ?, language = ?, brand = ?, color = ?, size = ?, "
         "specifications = ?, category = ?, description = ?, price = ?, discount_price = ?, "
-        "stock_quantity = ?, cover_class = ?, is_featured = ?, is_active = ? WHERE id = ?";
+        "stock_quantity = ?, cover_class = ?, is_featured = ?, is_active = ?, image_url = ? WHERE id = ?";
 
     sqlite3_stmt *upd_stmt;
     int rc = sqlite3_prepare_v2(g_db, upd_sql, -1, &upd_stmt, NULL);
@@ -1600,7 +1613,8 @@ char *db_admin_update_product_json(int id, const char *json_body) {
     sqlite3_bind_text(upd_stmt, 18, cur_cov, -1, SQLITE_STATIC);
     sqlite3_bind_int(upd_stmt, 19, cur_feat);
     sqlite3_bind_int(upd_stmt, 20, cur_active);
-    sqlite3_bind_int(upd_stmt, 21, id);
+    sqlite3_bind_text(upd_stmt, 21, cur_img, -1, SQLITE_STATIC);
+    sqlite3_bind_int(upd_stmt, 22, id);
 
     rc = sqlite3_step(upd_stmt);
     sqlite3_finalize(upd_stmt);
