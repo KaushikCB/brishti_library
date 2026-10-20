@@ -341,9 +341,16 @@
 
     if (detailProductType) detailProductType.textContent = (p.type === "book" ? "Book Details" : "Stationery Details");
     if (detailProductTitle) detailProductTitle.textContent = p.title;
-    if (detailCoverTitle) detailCoverTitle.textContent = p.title;
     if (detailCoverBox) {
       detailCoverBox.className = `product-cover detail-cover ${p.cover_class || (p.type === 'stationery' ? 'cover-stat-1' : 'cover-book-1')}`;
+      if (p.image_url && p.image_url.trim()) {
+        detailCoverBox.innerHTML = `
+          <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.title)}" class="detail-real-img" onerror="this.style.display='none';this.nextElementSibling.style.display='block';" />
+          <span id="detail-cover-title" style="display:none;">${escapeHtml(p.title)}</span>
+        `;
+      } else {
+        detailCoverBox.innerHTML = `<span id="detail-cover-title">${escapeHtml(p.title)}</span>`;
+      }
     }
     if (detailSku) detailSku.textContent = `SKU: ${p.sku}`;
     if (detailPrice) detailPrice.textContent = money(p.price);
@@ -400,11 +407,17 @@
   function cardMarkup(product) {
     const stockClass = product.stock_quantity > 0 ? "stock-ok" : "stock-out";
     const stockLabel = product.stock_quantity > 0 ? `${product.stock_quantity} in stock` : "Out of stock";
+    const hasImage = Boolean(product.image_url && product.image_url.trim());
 
     return `
       <article class="product-card" data-id="${product.id}" data-type="${product.type}">
-        <div class="product-cover ${product.cover_class || 'cover-book-1'}" aria-hidden="true">
-          <span>${escapeHtml(product.title)}</span>
+        <div class="product-cover ${product.cover_class || (product.type === 'stationery' ? 'cover-stat-1' : 'cover-book-1')}" aria-hidden="true">
+          ${hasImage ? `
+            <img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.title)}" class="product-real-img" loading="lazy" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='block';" />
+            <span style="display:none;">${escapeHtml(product.title)}</span>
+          ` : `
+            <span>${escapeHtml(product.title)}</span>
+          `}
         </div>
         <div class="product-body">
           <p class="product-meta">${escapeHtml(product.meta || product.category || '')}</p>

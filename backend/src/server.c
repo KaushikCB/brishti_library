@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <time.h>
 
 #define REQ_BUF_SIZE 65536
 #define RESP_HEADER_SIZE 2048
@@ -23,6 +25,7 @@ static const char *get_content_type(const char *path) {
     if (strcmp(dot, ".svg") == 0) return "image/svg+xml";
     if (strcmp(dot, ".png") == 0) return "image/png";
     if (strcmp(dot, ".jpg") == 0 || strcmp(dot, ".jpeg") == 0) return "image/jpeg";
+    if (strcmp(dot, ".webp") == 0) return "image/webp";
     if (strcmp(dot, ".ico") == 0) return "image/x-icon";
     return "text/plain; charset=utf-8";
 }
@@ -154,20 +157,142 @@ static void get_query_param(const char *query, const char *key, char *out_val, s
     out_val[i] = '\0';
 }
 
+/* Base64 & Secure Image Upload Helpers */
+static int b64_char_val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+static uint8_t *b64_decode_buffer(const char *in, size_t in_len, size_t *out_len) {
+    if (!in || in_len == 0) return NULL;
+    const char *comma = strchr(in, ',');
+    if (comma && (comma - in) < 80) {
+        in = comma + 1;
+        in_len = strlen(in);
+    }
+    uint8_t *out = (uint8_t *)malloc((in_len * 3) / 4 + 16);
+    if (!out) return NULL;
+    size_t o = 0;
+    int buf = 0, bits = 0;
+    for (size_t i = 0; i < in_len; i++) {
+        char c = in[i];
+        if (c == '=' || c == '\r' || c == '\n' || c == ' ' || c == '"') continue;
+        int v = b64_char_val(c);
+        if (v < 0) continue;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out[o++] = (uint8_t)((buf >> bits) & 0xFF);
+        }
+    }
+    *out_len = o;
+    return out;
+}
+
+static void handle_image_upload(SOCKET sock, const char *web_root, const char *body) {
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        send_error_json(sock, 400, "Invalid JSON in upload request");
+        return;
+    }
+
+    cJSON *data_item = cJSON_GetObjectItem(root, "data");
+    if (!data_item || !data_item->valuestring || strlen(data_item->valuestring) == 0) {
+        cJSON_Delete(root);
+        send_error_json(sock, 400, "Image data is required");
+        return;
+    }
+
+    size_t byte_len = 0;
+    uint8_t *bytes = b64_decode_buffer(data_item->valuestring, strlen(data_item->valuestring), &byte_len);
+    cJSON_Delete(root);
+
+    if (!bytes || byte_len < 16) {
+        if (bytes) free(bytes);
+        send_error_json(sock, 400, "Corrupted or empty image payload");
+        return;
+    }
+
+    if (byte_len > 5 * 1024 * 1024) {
+        free(bytes);
+        send_error_json(sock, 400, "Image size exceeds 5MB limit");
+        return;
+    }
+
+    /* Magic byte validation for JPEG, PNG, WebP */
+    const char *ext = NULL;
+    if (byte_len >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) {
+        ext = "jpg";
+    } else if (byte_len >= 8 && memcmp(bytes, "\x89PNG\r\n\x1a\n", 8) == 0) {
+        ext = "png";
+    } else if (byte_len >= 12 && memcmp(bytes, "RIFF", 4) == 0 && memcmp(bytes + 8, "WEBP", 4) == 0) {
+        ext = "webp";
+    }
+
+    if (!ext) {
+        free(bytes);
+        send_error_json(sock, 400, "Invalid image format. Only JPEG, PNG, and WebP are allowed.");
+        return;
+    }
+
+    /* Ensure uploads directory exists */
+    char upload_dir[512];
+    snprintf(upload_dir, sizeof(upload_dir), "%s/uploads", web_root);
+    CreateDirectoryA(upload_dir, NULL);
+
+    /* Generate safe unique filename preventing path traversal or execution */
+    char safe_filename[64];
+    snprintf(safe_filename, sizeof(safe_filename), "bl_%lu_%08x.%s", 
+             (unsigned long)time(NULL), (unsigned int)rand(), ext);
+
+    char full_dest[512];
+    snprintf(full_dest, sizeof(full_dest), "%s/%s", upload_dir, safe_filename);
+
+    FILE *f = fopen(full_dest, "wb");
+    if (!f) {
+        free(bytes);
+        send_error_json(sock, 500, "Failed to save image to disk");
+        return;
+    }
+
+    fwrite(bytes, 1, byte_len, f);
+    fclose(f);
+    free(bytes);
+
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Image uploaded successfully");
+    char url_buf[128];
+    snprintf(url_buf, sizeof(url_buf), "/uploads/%s", safe_filename);
+    cJSON_AddStringToObject(resp, "url", url_buf);
+    cJSON_AddStringToObject(resp, "filename", safe_filename);
+    cJSON_AddNumberToObject(resp, "size", (double)byte_len);
+
+    char *s = cJSON_PrintUnformatted(resp);
+    send_json_response(sock, 200, s, NULL);
+    cJSON_Delete(resp);
+    free(s);
+}
+
 static void handle_client(SOCKET sock, const char *web_root) {
-    char req_buf[REQ_BUF_SIZE];
-    int total_read = recv(sock, req_buf, sizeof(req_buf) - 1, 0);
+    char initial_buf[REQ_BUF_SIZE];
+    int total_read = recv(sock, initial_buf, sizeof(initial_buf) - 1, 0);
     if (total_read <= 0) {
         closesocket(sock);
         return;
     }
-    req_buf[total_read] = '\0';
+    initial_buf[total_read] = '\0';
 
     /* Parse request line */
     char method[16] = "";
     char url[256] = "";
     char version[16] = "";
-    sscanf(req_buf, "%15s %255s %15s", method, url, version);
+    sscanf(initial_buf, "%15s %255s %15s", method, url, version);
 
     /* Split URL and query string */
     char path[256] = "";
@@ -184,10 +309,31 @@ static void handle_client(SOCKET sock, const char *web_root) {
 
     /* Parse Content-Length header if present */
     int content_length = 0;
-    const char *cl_hdr = strstr(req_buf, "Content-Length:");
-    if (!cl_hdr) cl_hdr = strstr(req_buf, "content-length:");
+    const char *cl_hdr = strstr(initial_buf, "Content-Length:");
+    if (!cl_hdr) cl_hdr = strstr(initial_buf, "content-length:");
     if (cl_hdr) {
         content_length = atoi(cl_hdr + 15);
+    }
+
+    if (content_length > 8 * 1024 * 1024) {
+        send_error_json(sock, 413, "Payload exceeds maximum allowed size (5MB)");
+        closesocket(sock);
+        return;
+    }
+
+    char *req_buf = initial_buf;
+    char *heap_buf = NULL;
+    char *body_sep = strstr(initial_buf, "\r\n\r\n");
+    int header_bytes = body_sep ? (int)(body_sep + 4 - initial_buf) : total_read;
+    int total_expected = header_bytes + content_length;
+
+    if (total_expected >= REQ_BUF_SIZE) {
+        heap_buf = (char *)malloc(total_expected + 4096);
+        if (heap_buf) {
+            memcpy(heap_buf, initial_buf, total_read);
+            heap_buf[total_read] = '\0';
+            req_buf = heap_buf;
+        }
     }
 
     /* Locate HTTP body and ensure complete payload is received */
@@ -195,8 +341,11 @@ static void handle_client(SOCKET sock, const char *web_root) {
     if (body) {
         body += 4;
         int body_in_buf = total_read - (int)(body - req_buf);
-        while (body_in_buf < content_length && total_read < REQ_BUF_SIZE - 1) {
-            int n = recv(sock, req_buf + total_read, (REQ_BUF_SIZE - 1) - total_read, 0);
+        int max_capacity = heap_buf ? (total_expected + 4000) : (REQ_BUF_SIZE - 1);
+        while (body_in_buf < content_length && total_read < max_capacity) {
+            int to_read = max_capacity - total_read;
+            if (to_read <= 0) break;
+            int n = recv(sock, req_buf + total_read, to_read, 0);
             if (n <= 0) break;
             total_read += n;
             body_in_buf += n;
@@ -339,9 +488,16 @@ static void handle_client(SOCKET sock, const char *web_root) {
             if (r && r->valuestring) role_req = r->valuestring;
         }
 
-        int uid = 1;
-        if (strcmp(role_req, "admin") == 0) uid = 2;
+        /* Strictly forbid demo admin login: Admin requires secure password authentication */
+        if (strcmp(role_req, "admin") == 0) {
+            send_error_json(sock, 403, "Admin demo login is disabled. Please log in using secure admin credentials.");
+            if (req) cJSON_Delete(req);
+            if (heap_buf) free(heap_buf);
+            closesocket(sock);
+            return;
+        }
 
+        int uid = 1; /* Customer only */
         char *token = db_create_session(uid);
         char cookie_hdr[256];
         snprintf(cookie_hdr, sizeof(cookie_hdr), "Set-Cookie: bl_session=%s; Path=/; HttpOnly; SameSite=Lax\r\n", token);
@@ -349,8 +505,8 @@ static void handle_client(SOCKET sock, const char *web_root) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "status", "success");
         cJSON_AddStringToObject(resp, "token", token);
-        cJSON_AddStringToObject(resp, "role", (uid == 2) ? "admin" : "customer");
-        cJSON_AddStringToObject(resp, "message", (uid == 2) ? "Signed in as Brishti Admin" : "Signed in as CSE214 Student Demo");
+        cJSON_AddStringToObject(resp, "role", "customer");
+        cJSON_AddStringToObject(resp, "message", "Signed in as CSE214 Student Demo");
 
         char *s = cJSON_PrintUnformatted(resp);
         send_json_response(sock, 200, s, cookie_hdr);
@@ -396,15 +552,111 @@ static void handle_client(SOCKET sock, const char *web_root) {
         send_json_response(sock, 200, "{\"status\":\"success\",\"message\":\"Logged out\"}", cookie_hdr);
     }
 
-    /* --- ADMIN ENDPOINTS (Protected: requires admin role) --- */
+    /* --- PUBLIC ADMIN SETUP & AUTHENTICATION ENDPOINTS --- */
+    else if (strcmp(path, "/api/admin/setup-status") == 0 && strcmp(method, "GET") == 0) {
+        int done = db_admin_is_setup_completed();
+        cJSON *st = cJSON_CreateObject();
+        cJSON_AddBoolToObject(st, "setup_completed", done ? true : false);
+        char *s = cJSON_PrintUnformatted(st);
+        send_json_response(sock, 200, s, NULL);
+        cJSON_Delete(st);
+        free(s);
+    } else if (strcmp(path, "/api/admin/setup") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *req = cJSON_Parse(body);
+        const char *email = "admin@brishtilibrary.edu";
+        const char *pw = "";
+        if (req) {
+            cJSON *em = cJSON_GetObjectItem(req, "email");
+            cJSON *p = cJSON_GetObjectItem(req, "password");
+            if (em && em->valuestring && strlen(em->valuestring) > 0) email = em->valuestring;
+            if (p && p->valuestring) pw = p->valuestring;
+        }
+        char *json = db_admin_setup_json(email, pw);
+        int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 200;
+        char cookie_hdr[256] = "";
+        if (code == 200) {
+            cJSON *res_obj = cJSON_Parse(json);
+            if (res_obj) {
+                cJSON *tok = cJSON_GetObjectItem(res_obj, "token");
+                if (tok && tok->valuestring && strlen(tok->valuestring) > 0) {
+                    snprintf(cookie_hdr, sizeof(cookie_hdr), "Set-Cookie: bl_session=%s; Path=/; HttpOnly; SameSite=Lax\r\n", tok->valuestring);
+                }
+                cJSON_Delete(res_obj);
+            }
+        }
+        send_json_response(sock, code, json, (code == 200 && strlen(cookie_hdr) > 0) ? cookie_hdr : NULL);
+        if (req) cJSON_Delete(req);
+        free(json);
+    } else if (strcmp(path, "/api/admin/login") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *req = cJSON_Parse(body);
+        const char *email = "";
+        const char *pw = "";
+        if (req) {
+            cJSON *em = cJSON_GetObjectItem(req, "email");
+            cJSON *p = cJSON_GetObjectItem(req, "password");
+            if (em && em->valuestring) email = em->valuestring;
+            if (p && p->valuestring) pw = p->valuestring;
+        }
+        char token_buf[128] = "";
+        char *json = db_admin_login_json(email, pw, token_buf, sizeof(token_buf));
+        int code = 200;
+        if (strstr(json, "\"status\":\"error\"") != NULL) {
+            if (strstr(json, "Invalid admin credentials") != NULL) code = 401;
+            else code = 400;
+        }
+        char cookie_hdr[256] = "";
+        if (code == 200 && strlen(token_buf) > 0) {
+            snprintf(cookie_hdr, sizeof(cookie_hdr), "Set-Cookie: bl_session=%s; Path=/; HttpOnly; SameSite=Lax\r\n", token_buf);
+        }
+        send_json_response(sock, code, json, (code == 200 && strlen(cookie_hdr) > 0) ? cookie_hdr : NULL);
+        if (req) cJSON_Delete(req);
+        free(json);
+    }
+
+    /* --- PROTECTED ADMIN ENDPOINTS (Strictly requires admin role) --- */
     else if (strncmp(path, "/api/admin/", 11) == 0) {
         if (current_user_id <= 0 || strcmp(user_role, "admin") != 0) {
             send_error_json(sock, 403, "Admin authorization required");
+            if (heap_buf) free(heap_buf);
             closesocket(sock);
             return;
         }
 
-        if (strcmp(path, "/api/admin/orders") == 0 && strcmp(method, "GET") == 0) {
+        if (strcmp(path, "/api/admin/change-password") == 0 && strcmp(method, "POST") == 0) {
+            cJSON *req = cJSON_Parse(body);
+            const char *cur_pw = "";
+            const char *new_pw = "";
+            if (req) {
+                cJSON *cp = cJSON_GetObjectItem(req, "current_password");
+                cJSON *np = cJSON_GetObjectItem(req, "new_password");
+                if (cp && cp->valuestring) cur_pw = cp->valuestring;
+                if (np && np->valuestring) new_pw = np->valuestring;
+            }
+            char *json = db_admin_change_password_json(current_user_id, cur_pw, new_pw);
+            int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 200;
+            send_json_response(sock, code, json, NULL);
+            if (req) cJSON_Delete(req);
+            free(json);
+        } else if (strcmp(path, "/api/admin/upload") == 0 && strcmp(method, "POST") == 0) {
+            handle_image_upload(sock, web_root, body);
+        } else if (strcmp(path, "/api/admin/categories") == 0 && strcmp(method, "POST") == 0) {
+            char *json = db_admin_create_category_json(body);
+            int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 201;
+            send_json_response(sock, code, json, NULL);
+            free(json);
+        } else if (strncmp(path, "/api/admin/categories/", 22) == 0 && (strcmp(method, "PUT") == 0 || strcmp(method, "PATCH") == 0)) {
+            int cid = atoi(path + 22);
+            char *json = db_admin_update_category_json(cid, body);
+            int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 200;
+            send_json_response(sock, code, json, NULL);
+            free(json);
+        } else if (strncmp(path, "/api/admin/categories/", 22) == 0 && strcmp(method, "DELETE") == 0) {
+            int cid = atoi(path + 22);
+            char *json = db_admin_delete_category_json(cid);
+            int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 200;
+            send_json_response(sock, code, json, NULL);
+            free(json);
+        } else if (strcmp(path, "/api/admin/orders") == 0 && strcmp(method, "GET") == 0) {
             char *json = db_admin_get_all_orders_json();
             send_json_response(sock, 200, json, NULL);
             free(json);
@@ -465,6 +717,7 @@ static void handle_client(SOCKET sock, const char *web_root) {
         serve_static_file(sock, web_root, path);
     }
 
+    if (heap_buf) free(heap_buf);
     closesocket(sock);
 }
 
@@ -483,6 +736,11 @@ int server_start(ServerConfig config) {
         WSACleanup();
         return 1;
     }
+
+    /* Ensure uploads directory exists */
+    char upload_dir[512];
+    snprintf(upload_dir, sizeof(upload_dir), "%s/uploads", config.web_root);
+    CreateDirectoryA(upload_dir, NULL);
 
     SOCKET listen_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_sock == INVALID_SOCKET) {

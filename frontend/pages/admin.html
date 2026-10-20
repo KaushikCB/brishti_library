@@ -12,6 +12,7 @@
     />
     <link rel="stylesheet" href="../css/style.css" />
     <link rel="stylesheet" href="../css/admin.css" />
+    <script src="../js/theme.js"></script>
   </head>
   <body class="admin-body">
     <header class="site-header">
@@ -41,19 +42,87 @@
         </nav>
 
         <div class="header-actions">
-          <span class="admin-badge" id="admin-user-pill">Admin Mode</span>
-          <button class="btn btn-sm btn-ghost" id="admin-logout-btn">Log Out</button>
+          <button class="theme-toggle-btn" id="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle theme">
+            <svg class="theme-icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg class="theme-icon-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+          <span class="admin-badge" id="admin-user-pill" style="display:none;">Admin</span>
+          <button class="btn btn-sm btn-ghost" id="btn-open-change-pw" style="display:none;">Change Password</button>
+          <button class="btn btn-sm btn-ghost" id="admin-logout-btn" style="display:none;">Log Out</button>
         </div>
       </div>
     </header>
 
     <main class="admin-main">
-      <div class="admin-container">
+      <!-- Admin Authentication View (Shown if not logged in) -->
+      <div id="admin-auth-view" style="display:none;">
+        <!-- First-Time Admin Setup Card -->
+        <div class="admin-auth-card" id="card-admin-setup" style="display:none;">
+          <p class="eyebrow">First-Time Setup</p>
+          <h2>Create Admin Credentials</h2>
+          <p class="admin-auth-desc">
+            Welcome to BrishtiLibrary. As the store owner, please create your administrator username and secure password.
+            Your password will be salted and hashed with 5,000 rounds of SHA-256 on the C backend and stored in SQLite. Once completed, initial setup is permanently disabled.
+          </p>
+          <div class="admin-auth-alert error" id="setup-alert" style="display:none;"></div>
+          <form id="form-admin-setup">
+            <div class="form-group" style="margin-bottom:14px;">
+              <label for="setup-username">Admin Username *</label>
+              <input type="text" id="setup-username" name="username" required value="admin" autocomplete="username" />
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+              <label for="setup-password">Admin Password * (min. 6 characters)</label>
+              <input type="password" id="setup-password" name="password" required minlength="6" placeholder="Choose a strong password" autocomplete="new-password" />
+            </div>
+            <div class="form-group" style="margin-bottom:20px;">
+              <label for="setup-confirm-password">Confirm Password *</label>
+              <input type="password" id="setup-confirm-password" name="confirm_password" required minlength="6" placeholder="Re-enter password" autocomplete="new-password" />
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;" id="btn-submit-setup">Save Admin Password &amp; Sign In</button>
+          </form>
+        </div>
+
+        <!-- Admin Login Card -->
+        <div class="admin-auth-card" id="card-admin-login" style="display:none;">
+          <p class="eyebrow">Secure Access</p>
+          <h2>Administrator Sign In</h2>
+          <p class="admin-auth-desc">
+            Sign in with your configured administrator credentials to access store orders, inventory, and categories.
+          </p>
+          <div class="admin-auth-alert error" id="login-alert" style="display:none;"></div>
+          <form id="form-admin-login">
+            <div class="form-group" style="margin-bottom:14px;">
+              <label for="login-username">Username *</label>
+              <input type="text" id="login-username" name="username" required value="admin" autocomplete="username" />
+            </div>
+            <div class="form-group" style="margin-bottom:20px;">
+              <label for="login-password">Password *</label>
+              <input type="password" id="login-password" name="password" required placeholder="Enter your admin password" autocomplete="current-password" />
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;" id="btn-submit-login">Sign In</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Main Admin Dashboard (Shown when authenticated) -->
+      <div class="admin-container" id="admin-dashboard-container" style="display:none;">
         <!-- Stats Row -->
         <section class="stats-row">
           <div class="stat-card">
             <p class="stat-label">Total Products</p>
-            <h3 class="stat-val" id="stat-products-count">8</h3>
+            <h3 class="stat-val" id="stat-products-count">-</h3>
             <span class="stat-sub">Books &amp; Stationery</span>
           </div>
           <div class="stat-card">
@@ -68,7 +137,7 @@
           </div>
           <div class="stat-card">
             <p class="stat-label">Backend Engine</p>
-            <h3 class="stat-val" style="font-size:1.4rem;">C &amp; SQLite</h3>
+            <h3 class="stat-val" style="font-size:1.4rem;">C99 &amp; SQLite</h3>
             <span class="stat-sub">MinGW 6.3 / Winsock</span>
           </div>
         </section>
@@ -104,6 +173,36 @@
           </div>
         </section>
 
+        <!-- Category Management Section -->
+        <section class="admin-section">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">Taxonomy</p>
+              <h2>Category Management</h2>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <button class="btn btn-sm btn-ghost" id="btn-refresh-admin-categories">Refresh Categories</button>
+              <button class="btn btn-sm btn-primary" id="btn-open-add-category">+ Add Category</button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="lab-table admin-table" id="admin-categories-table">
+              <thead>
+                <tr>
+                  <th>Category Name</th>
+                  <th>Type</th>
+                  <th>Active Products</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-categories-tbody">
+                <tr><td colspan="4">Loading categories from C backend…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Product Inventory Management -->
         <section class="admin-section">
           <div class="section-title-row">
@@ -122,6 +221,7 @@
               <thead>
                 <tr>
                   <th>SKU</th>
+                  <th>Photo</th>
                   <th>Title</th>
                   <th>Type</th>
                   <th>Category</th>
@@ -132,7 +232,7 @@
                 </tr>
               </thead>
               <tbody id="admin-products-tbody">
-                <tr><td colspan="8">Loading catalog from C backend…</td></tr>
+                <tr><td colspan="9">Loading catalog from C backend…</td></tr>
               </tbody>
             </table>
           </div>
@@ -140,18 +240,21 @@
       </div>
     </main>
 
-    <!-- Add Product Modal Dialog -->
+    <!-- Add/Edit Product Modal Dialog -->
     <dialog class="modal-dialog" id="modal-add-product">
-      <div class="modal-card">
+      <div class="modal-card" style="max-width:680px;">
         <div class="modal-head">
           <div>
             <span class="eyebrow" style="font-size:0.75rem;">Inventory Control</span>
-            <h2>Add New Product</h2>
+            <h2 id="modal-product-title">Add New Product</h2>
           </div>
           <button type="button" class="icon-close" id="btn-close-product-modal" aria-label="Close dialog">&times;</button>
         </div>
 
         <form id="form-add-product">
+          <input type="hidden" id="prod-edit-id" name="id" value="" />
+          <input type="hidden" id="prod-image-url" name="image_url" value="" />
+
           <div class="form-row">
             <div class="form-group flex-1">
               <label for="prod-type">Product Type *</label>
@@ -166,7 +269,7 @@
             </div>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" style="margin-bottom:12px;">
             <label for="prod-title">Product Title / Name *</label>
             <input type="text" id="prod-title" name="title" required placeholder="e.g. Introduction to Algorithms" />
           </div>
@@ -182,7 +285,9 @@
             </div>
             <div class="form-group flex-1">
               <label for="prod-category">Category *</label>
-              <input type="text" id="prod-category" name="category" required placeholder="e.g. Computer Science" />
+              <select id="prod-category" name="category" required>
+                <!-- Populated dynamically from C backend categories -->
+              </select>
             </div>
           </div>
 
@@ -197,6 +302,28 @@
             </div>
           </div>
 
+          <!-- Product Image Upload Section -->
+          <div class="form-group image-upload-wrap">
+            <label>Product Image (JPEG, PNG, WebP — max 5MB)</label>
+            <input type="file" id="prod-image-file" class="file-input-hidden" accept="image/jpeg,image/png,image/webp" />
+            <div class="image-preview-box" id="image-preview-container">
+              <div class="image-preview-placeholder" id="image-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+                <span>No photo uploaded. Default stylized book/stationery art will be used.</span>
+              </div>
+              <img id="image-preview-img" src="" alt="Product Preview" style="display:none;" />
+            </div>
+            <div class="image-upload-actions">
+              <button type="button" class="btn btn-sm btn-ghost" id="btn-choose-image">Upload / Replace Photo</button>
+              <button type="button" class="btn btn-sm btn-danger-outline" id="btn-remove-image" style="display:none;">Remove Photo</button>
+              <span class="text-muted" id="image-upload-status"></span>
+            </div>
+          </div>
+
           <div class="form-row" id="wrap-book-extra">
             <div class="form-group flex-1">
               <label for="prod-isbn">ISBN</label>
@@ -208,7 +335,7 @@
             </div>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" style="margin-bottom:12px;">
             <label for="prod-description">Description</label>
             <textarea id="prod-description" name="description" rows="3" placeholder="Brief summary of the product..."></textarea>
           </div>
@@ -216,6 +343,73 @@
           <div class="modal-actions" style="margin-top:20px;">
             <button type="button" class="btn btn-ghost" id="btn-cancel-add-product">Cancel</button>
             <button type="submit" class="btn btn-primary" id="btn-submit-add-product">Save Product</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Add/Edit Category Modal Dialog -->
+    <dialog class="modal-dialog" id="modal-category">
+      <div class="modal-card" style="max-width:440px;">
+        <div class="modal-head">
+          <div>
+            <span class="eyebrow" style="font-size:0.75rem;">Taxonomy</span>
+            <h2 id="modal-category-title">Add Category</h2>
+          </div>
+          <button type="button" class="icon-close" id="btn-close-category-modal" aria-label="Close dialog">&times;</button>
+        </div>
+
+        <form id="form-category">
+          <input type="hidden" id="category-edit-id" value="" />
+          <div class="form-group" style="margin-bottom:14px;">
+            <label for="category-type">Category Type *</label>
+            <select id="category-type" required>
+              <option value="book" selected>Book</option>
+              <option value="stationery">Stationery</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:20px;">
+            <label for="category-name">Category Name *</label>
+            <input type="text" id="category-name" required placeholder="e.g. Data Structures" />
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="btn-cancel-category">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-category">Save Category</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Change Password Modal Dialog -->
+    <dialog class="modal-dialog" id="modal-change-password">
+      <div class="modal-card" style="max-width:460px;">
+        <div class="modal-head">
+          <div>
+            <span class="eyebrow" style="font-size:0.75rem;">Security</span>
+            <h2>Change Admin Password</h2>
+          </div>
+          <button type="button" class="icon-close" id="btn-close-change-pw-modal" aria-label="Close dialog">&times;</button>
+        </div>
+
+        <div class="admin-auth-alert error" id="change-pw-alert" style="display:none;"></div>
+        <form id="form-change-password">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label for="pw-current">Current Password *</label>
+            <input type="password" id="pw-current" required placeholder="Enter current password" autocomplete="current-password" />
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label for="pw-new">New Password * (min. 6 characters)</label>
+            <input type="password" id="pw-new" required minlength="6" placeholder="Enter new strong password" autocomplete="new-password" />
+          </div>
+          <div class="form-group" style="margin-bottom:20px;">
+            <label for="pw-confirm">Confirm New Password *</label>
+            <input type="password" id="pw-confirm" required minlength="6" placeholder="Re-enter new password" autocomplete="new-password" />
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="btn-cancel-change-pw">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-change-pw">Update Password</button>
           </div>
         </form>
       </div>

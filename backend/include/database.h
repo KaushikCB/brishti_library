@@ -3,6 +3,7 @@
 
 #include "sqlite3.h"
 #include <stdbool.h>
+#include <stddef.h>
 
 /* Global or managed db handle */
 extern sqlite3 *g_db;
@@ -20,6 +21,11 @@ char *db_admin_create_product_json(const char *json_body);
 char *db_admin_update_product_json(int id, const char *json_body);
 char *db_admin_delete_product_json(int id);
 
+/* Category Management API */
+char *db_admin_create_category_json(const char *json_body);
+char *db_admin_update_category_json(int id, const char *json_body);
+char *db_admin_delete_category_json(int id);
+
 /* Cart & Order API */
 char *db_validate_cart_json(const char *cart_json_str);
 char *db_create_order_json(int user_id, const char *order_json_str);
@@ -33,5 +39,11 @@ int db_find_or_create_user(const char *email, const char *name, const char *goog
 char *db_create_session(int user_id);
 int db_validate_session(const char *session_token, char *out_name, char *out_email, char *out_role);
 void db_delete_session(const char *session_token);
+
+/* Secure Admin Authentication API */
+int db_admin_is_setup_completed(void);
+char *db_admin_setup_json(const char *email, const char *password);
+char *db_admin_login_json(const char *email, const char *password, char *out_token_buf, size_t token_buf_len);
+char *db_admin_change_password_json(int admin_user_id, const char *current_password, const char *new_password);
 
 #endif /* DATABASE_H */

@@ -1,5 +1,6 @@
 #include "../include/database.h"
 #include "../include/cJSON.h"
+#include "../include/sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,8 +52,15 @@ int db_init(const char *db_file_path) {
         "  discount_price REAL DEFAULT 0,"
         "  stock_quantity INTEGER NOT NULL DEFAULT 10,"
         "  cover_class TEXT,"
+        "  image_url TEXT,"
         "  is_featured INTEGER DEFAULT 0,"
         "  is_active INTEGER DEFAULT 1,"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+        ");"
+        "CREATE TABLE IF NOT EXISTS categories ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  name TEXT UNIQUE NOT NULL,"
+        "  type TEXT NOT NULL,"
         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
         ");"
         "CREATE TABLE IF NOT EXISTS users ("
@@ -62,6 +70,8 @@ int db_init(const char *db_file_path) {
         "  name TEXT NOT NULL,"
         "  avatar_url TEXT,"
         "  role TEXT DEFAULT 'customer',"
+        "  password_hash TEXT,"
+        "  password_salt TEXT,"
         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
         ");"
         "CREATE TABLE IF NOT EXISTS sessions ("
@@ -111,6 +121,32 @@ int db_init(const char *db_file_path) {
         fprintf(stderr, "SQL Schema Error: %s\n", err_msg);
         sqlite3_free(err_msg);
         return rc;
+    }
+
+    /* Schema migrations for existing databases */
+    sqlite3_exec(g_db, "ALTER TABLE users ADD COLUMN password_hash TEXT;", NULL, NULL, NULL);
+    sqlite3_exec(g_db, "ALTER TABLE users ADD COLUMN password_salt TEXT;", NULL, NULL, NULL);
+    sqlite3_exec(g_db, "ALTER TABLE products ADD COLUMN image_url TEXT;", NULL, NULL, NULL);
+
+    /* Seed categories if empty */
+    sqlite3_stmt *cat_stmt;
+    sqlite3_prepare_v2(g_db, "SELECT COUNT(*) FROM categories", -1, &cat_stmt, NULL);
+    int cat_count = 0;
+    if (sqlite3_step(cat_stmt) == SQLITE_ROW) {
+        cat_count = sqlite3_column_int(cat_stmt, 0);
+    }
+    sqlite3_finalize(cat_stmt);
+
+    if (cat_count == 0) {
+        const char *cat_seed = 
+            "INSERT INTO categories (name, type) VALUES "
+            "('Computer Science', 'book'),"
+            "('Fiction', 'book'),"
+            "('Essays', 'book'),"
+            "('Notebooks', 'stationery'),"
+            "('Pens & Ink', 'stationery'),"
+            "('Desk Accessories', 'stationery');";
+        sqlite3_exec(g_db, cat_seed, NULL, NULL, NULL);
     }
 
     /* Seed initial demo products matching user's original catalog if empty */
@@ -291,6 +327,10 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
         if (specs && strlen(specs) > 0) cJSON_AddStringToObject(p, "specifications", specs);
         if (disc_price > 0.0) cJSON_AddNumberToObject(p, "discount_price", disc_price);
 
+        const char *img_url = (const char*)sqlite3_column_text(stmt, 21);
+        if (img_url && strlen(img_url) > 0) cJSON_AddStringToObject(p, "image_url", img_url);
+        else cJSON_AddStringToObject(p, "image_url", "");
+
         /* Format display meta string matching frontend card expectations */
         char meta_buf[128];
         if (strcmp(type, "book") == 0 && author) {
@@ -314,7 +354,7 @@ char *db_get_products_json(const char *category, const char *search_q, const cha
 char *db_get_product_by_id_json(int id) {
     const char *sql = "SELECT id, sku, type, title, author, isbn, publisher, edition, language, "
                       "brand, color, size, specifications, category, description, price, "
-                      "stock_quantity, cover_class, is_featured, is_active FROM products WHERE id = ?";
+                      "stock_quantity, cover_class, is_featured, is_active, image_url FROM products WHERE id = ?";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
         return NULL;
@@ -356,6 +396,10 @@ char *db_get_product_by_id_json(int id) {
         cJSON_AddBoolToObject(p, "is_featured", sqlite3_column_int(stmt, 18));
         cJSON_AddBoolToObject(p, "is_active", sqlite3_column_int(stmt, 19));
 
+        const char *img_url = (const char*)sqlite3_column_text(stmt, 20);
+        if (img_url && strlen(img_url) > 0) cJSON_AddStringToObject(p, "image_url", img_url);
+        else cJSON_AddStringToObject(p, "image_url", "");
+
         sqlite3_finalize(stmt);
         char *out = cJSON_PrintUnformatted(p);
         cJSON_Delete(p);
@@ -366,7 +410,12 @@ char *db_get_product_by_id_json(int id) {
 }
 
 char *db_get_categories_json(void) {
-    const char *sql = "SELECT DISTINCT category, type FROM products WHERE is_active = 1 ORDER BY category ASC";
+    const char *sql = 
+        "SELECT c.id, c.name, c.type, COUNT(p.id) AS product_count "
+        "FROM categories c "
+        "LEFT JOIN products p ON p.category = c.name AND p.is_active = 1 "
+        "GROUP BY c.id, c.name, c.type "
+        "ORDER BY c.type ASC, c.name ASC";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
         return NULL;
@@ -375,8 +424,10 @@ char *db_get_categories_json(void) {
     cJSON *arr = cJSON_CreateArray();
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         cJSON *cat = cJSON_CreateObject();
-        cJSON_AddStringToObject(cat, "name", (const char*)sqlite3_column_text(stmt, 0));
-        cJSON_AddStringToObject(cat, "type", (const char*)sqlite3_column_text(stmt, 1));
+        cJSON_AddNumberToObject(cat, "id", sqlite3_column_int(stmt, 0));
+        cJSON_AddStringToObject(cat, "name", (const char*)sqlite3_column_text(stmt, 1));
+        cJSON_AddStringToObject(cat, "type", (const char*)sqlite3_column_text(stmt, 2));
+        cJSON_AddNumberToObject(cat, "product_count", sqlite3_column_int(stmt, 3));
         cJSON_AddItemToArray(arr, cat);
     }
     sqlite3_finalize(stmt);
@@ -384,6 +435,218 @@ char *db_get_categories_json(void) {
     char *out = cJSON_PrintUnformatted(arr);
     cJSON_Delete(arr);
     return out;
+}
+
+char *db_admin_create_category_json(const char *json_body) {
+    cJSON *resp = cJSON_CreateObject();
+    cJSON *root = cJSON_Parse(json_body);
+    if (!root) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid JSON payload");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    cJSON *name_obj = cJSON_GetObjectItem(root, "name");
+    cJSON *type_obj = cJSON_GetObjectItem(root, "type");
+    if (!name_obj || !name_obj->valuestring || strlen(name_obj->valuestring) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Category name is required");
+        cJSON_Delete(root);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    const char *cat_name = name_obj->valuestring;
+    const char *cat_type = (type_obj && type_obj->valuestring && strcmp(type_obj->valuestring, "stationery") == 0) 
+                           ? "stationery" : "book";
+
+    /* Check if already exists */
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(g_db, "SELECT id FROM categories WHERE lower(name) = lower(?)", -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, cat_name, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Category with this name already exists");
+        cJSON_Delete(root);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+    sqlite3_finalize(stmt);
+
+    const char *ins_sql = "INSERT INTO categories (name, type) VALUES (?, ?)";
+    sqlite3_prepare_v2(g_db, ins_sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, cat_name, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, cat_type, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Failed to insert category into database");
+        cJSON_Delete(root);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_int64 new_id = sqlite3_last_insert_rowid(g_db);
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Category created successfully");
+    cJSON_AddNumberToObject(resp, "id", (double)new_id);
+    cJSON_AddStringToObject(resp, "name", cat_name);
+    cJSON_AddStringToObject(resp, "type", cat_type);
+
+    cJSON_Delete(root);
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
+}
+
+char *db_admin_update_category_json(int id, const char *json_body) {
+    cJSON *resp = cJSON_CreateObject();
+    if (id <= 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid category ID");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    cJSON *root = cJSON_Parse(json_body);
+    if (!root) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid JSON payload");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    cJSON *name_obj = cJSON_GetObjectItem(root, "name");
+    cJSON *type_obj = cJSON_GetObjectItem(root, "type");
+    if (!name_obj || !name_obj->valuestring || strlen(name_obj->valuestring) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Category name is required");
+        cJSON_Delete(root);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    /* Retrieve old name */
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(g_db, "SELECT name, type FROM categories WHERE id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+    char old_name[128] = "";
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        strncpy(old_name, (const char*)sqlite3_column_text(stmt, 0), sizeof(old_name) - 1);
+    }
+    sqlite3_finalize(stmt);
+
+    if (strlen(old_name) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Category not found");
+        cJSON_Delete(root);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    const char *new_name = name_obj->valuestring;
+    const char *new_type = (type_obj && type_obj->valuestring && strcmp(type_obj->valuestring, "stationery") == 0) ? "stationery" : "book";
+
+    /* Update category */
+    sqlite3_prepare_v2(g_db, "UPDATE categories SET name = ?, type = ? WHERE id = ?", -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, new_name, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, new_type, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 3, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    /* Cascade update product category names if renamed */
+    if (strcmp(old_name, new_name) != 0) {
+        sqlite3_prepare_v2(g_db, "UPDATE products SET category = ? WHERE category = ?", -1, &stmt, NULL);
+        sqlite3_bind_text(stmt, 1, new_name, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, old_name, -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Category updated successfully");
+    cJSON_AddNumberToObject(resp, "id", id);
+    cJSON_AddStringToObject(resp, "name", new_name);
+    cJSON_AddStringToObject(resp, "type", new_type);
+
+    cJSON_Delete(root);
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
+}
+
+char *db_admin_delete_category_json(int id) {
+    cJSON *resp = cJSON_CreateObject();
+    if (id <= 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid category ID");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    /* Find category name */
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(g_db, "SELECT name FROM categories WHERE id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+    char cat_name[128] = "";
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        strncpy(cat_name, (const char*)sqlite3_column_text(stmt, 0), sizeof(cat_name) - 1);
+    }
+    sqlite3_finalize(stmt);
+
+    if (strlen(cat_name) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Category not found");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    /* Prevent unsafe deletion of categories containing products */
+    sqlite3_prepare_v2(g_db, "SELECT COUNT(*) FROM products WHERE category = ? AND is_active = 1", -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, cat_name, -1, SQLITE_STATIC);
+    int prod_count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        prod_count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    if (prod_count > 0) {
+        char err_msg[256];
+        snprintf(err_msg, sizeof(err_msg), "Cannot delete category containing %d active product(s). Please reassign or delete the products first.", prod_count);
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", err_msg);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    /* Safe to delete */
+    sqlite3_prepare_v2(g_db, "DELETE FROM categories WHERE id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Category deleted successfully");
+    cJSON_AddNumberToObject(resp, "id", id);
+
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
 }
 
 /* Cart Validation & Price Verification (Server-Side) */
@@ -1430,5 +1693,240 @@ char *db_admin_delete_product_json(int id) {
     char *out = cJSON_PrintUnformatted(resp);
     cJSON_Delete(resp);
     return out;
+}
+
+/* --- Secure Admin Authentication Implementation --- */
+
+int db_admin_is_setup_completed(void) {
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT id FROM users WHERE role = 'admin' AND password_hash IS NOT NULL AND length(password_hash) > 0 LIMIT 1";
+    if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    int completed = (sqlite3_step(stmt) == SQLITE_ROW) ? 1 : 0;
+    sqlite3_finalize(stmt);
+    return completed;
+}
+
+char *db_admin_setup_json(const char *email, const char *password) {
+    cJSON *resp = cJSON_CreateObject();
+    if (db_admin_is_setup_completed()) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Admin setup has already been completed. First-time setup is disabled.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    if (!password || strlen(password) < 6) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Admin password must be at least 6 characters long.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    const char *admin_email = (email && strlen(email) > 0) ? email : "admin@brishtilibrary.edu";
+
+    char salt[33];
+    char hash[65];
+    sha256_generate_salt(salt);
+    sha256_hash_password(password, salt, hash);
+
+    /* Check if an admin record exists to update, or create a new one */
+    sqlite3_stmt *stmt;
+    const char *sel_sql = "SELECT id FROM users WHERE role = 'admin' LIMIT 1";
+    sqlite3_prepare_v2(g_db, sel_sql, -1, &stmt, NULL);
+    int admin_id = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        admin_id = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    if (admin_id > 0) {
+        const char *upd_sql = "UPDATE users SET email = ?, password_hash = ?, password_salt = ? WHERE id = ?";
+        sqlite3_prepare_v2(g_db, upd_sql, -1, &stmt, NULL);
+        sqlite3_bind_text(stmt, 1, admin_email, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, hash, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 3, salt, -1, SQLITE_STATIC);
+        sqlite3_bind_int(stmt, 4, admin_id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    } else {
+        const char *ins_sql = "INSERT INTO users (email, name, role, password_hash, password_salt) VALUES (?, 'Brishti Admin', 'admin', ?, ?)";
+        sqlite3_prepare_v2(g_db, ins_sql, -1, &stmt, NULL);
+        sqlite3_bind_text(stmt, 1, admin_email, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, hash, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 3, salt, -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        admin_id = (int)sqlite3_last_insert_rowid(g_db);
+    }
+
+    char *token = db_create_session(admin_id);
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Admin password configured successfully. Setup is now permanently closed.");
+    cJSON_AddStringToObject(resp, "token", token ? token : "");
+    cJSON_AddStringToObject(resp, "role", "admin");
+    cJSON_AddStringToObject(resp, "email", admin_email);
+    if (token) free(token);
+
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
+}
+
+char *db_admin_login_json(const char *email, const char *password, char *out_token_buf, size_t token_buf_len) {
+    if (out_token_buf && token_buf_len > 0) out_token_buf[0] = '\0';
+    cJSON *resp = cJSON_CreateObject();
+
+    if (!db_admin_is_setup_completed()) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Admin account not configured yet. Please complete initial setup first.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    if (!password || strlen(password) == 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Password is required.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT id, email, name, password_hash, password_salt FROM users WHERE role = 'admin' AND password_hash IS NOT NULL";
+    if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Database error.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    int found = 0;
+    int uid = 0;
+    char db_name[64] = "Brishti Admin";
+    char db_email[64] = "admin@brishtilibrary.edu";
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *row_email = (const char*)sqlite3_column_text(stmt, 1);
+        const char *db_hash = (const char*)sqlite3_column_text(stmt, 3);
+        const char *db_salt = (const char*)sqlite3_column_text(stmt, 4);
+
+        if (email && strlen(email) > 0 && row_email && strcmp(email, row_email) != 0) {
+            continue;
+        }
+
+        if (db_hash && db_salt) {
+            char computed_hash[65];
+            sha256_hash_password(password, db_salt, computed_hash);
+            if (strcmp(computed_hash, db_hash) == 0) {
+                found = 1;
+                uid = sqlite3_column_int(stmt, 0);
+                if (sqlite3_column_text(stmt, 2)) strncpy(db_name, (const char*)sqlite3_column_text(stmt, 2), sizeof(db_name) - 1);
+                if (row_email) strncpy(db_email, row_email, sizeof(db_email) - 1);
+                break;
+            }
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (!found) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Invalid admin credentials.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    char *token = db_create_session(uid);
+    if (token && out_token_buf && token_buf_len > 0) {
+        strncpy(out_token_buf, token, token_buf_len - 1);
+        out_token_buf[token_buf_len - 1] = '\0';
+    }
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Admin authentication successful.");
+    cJSON_AddStringToObject(resp, "token", token ? token : "");
+    cJSON_AddStringToObject(resp, "role", "admin");
+    cJSON_AddStringToObject(resp, "name", db_name);
+    cJSON_AddStringToObject(resp, "email", db_email);
+    if (token) free(token);
+
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
+}
+
+char *db_admin_change_password_json(int admin_user_id, const char *current_password, const char *new_password) {
+    cJSON *resp = cJSON_CreateObject();
+    if (admin_user_id <= 0) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Admin authorization required.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    if (!current_password || !new_password || strlen(new_password) < 6) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "New password must be at least 6 characters.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    sqlite3_stmt *stmt;
+    const char *sel_sql = "SELECT password_hash, password_salt FROM users WHERE id = ? AND role = 'admin'";
+    if (sqlite3_prepare_v2(g_db, sel_sql, -1, &stmt, NULL) != SQLITE_OK) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Database error.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+    sqlite3_bind_int(stmt, 1, admin_user_id);
+
+    int valid = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *db_hash = (const char*)sqlite3_column_text(stmt, 0);
+        const char *db_salt = (const char*)sqlite3_column_text(stmt, 1);
+        if (db_hash && db_salt) {
+            char computed[65];
+            sha256_hash_password(current_password, db_salt, computed);
+            if (strcmp(computed, db_hash) == 0) {
+                valid = 1;
+            }
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (!valid) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Current password is incorrect.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    char new_salt[33];
+    char new_hash[65];
+    sha256_generate_salt(new_salt);
+    sha256_hash_password(new_password, new_salt, new_hash);
+
+    const char *upd_sql = "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?";
+    sqlite3_prepare_v2(g_db, upd_sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, new_hash, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, new_salt, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 3, admin_user_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Password changed successfully.");
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
 }
 

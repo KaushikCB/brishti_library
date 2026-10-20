@@ -201,3 +201,138 @@
   }
 }
 
+/* Admin Auth & Setup Container */
+.admin-auth-card {
+  max-width: 480px;
+  margin: 60px auto;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 36px 32px;
+  box-shadow: var(--shadow);
+}
+
+.admin-auth-card h2 {
+  font-family: var(--font-serif);
+  font-size: 1.6rem;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.admin-auth-desc {
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  margin-bottom: 24px;
+}
+
+.admin-auth-alert {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-auth-alert.error {
+  background: rgba(220, 53, 69, 0.12);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: #c93b48;
+}
+
+[data-theme="dark"] .admin-auth-alert.error {
+  background: rgba(220, 53, 69, 0.2);
+  border-color: rgba(220, 53, 69, 0.4);
+  color: #ff8a95;
+}
+
+.admin-auth-alert.info {
+  background: rgba(107, 145, 199, 0.12);
+  border: 1px solid rgba(107, 145, 199, 0.3);
+  color: var(--burgundy);
+}
+
+/* Image Upload & Preview Styles */
+.image-upload-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.image-preview-box {
+  width: 100%;
+  height: 180px;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.image-preview-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-preview-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  text-align: center;
+  padding: 16px;
+}
+
+.image-preview-placeholder svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.6;
+}
+
+.image-upload-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+/* Category Badge Styles */
+.cat-type-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.cat-type-book {
+  background: rgba(107, 145, 199, 0.18);
+  color: var(--burgundy);
+}
+.cat-type-stationery {
+  background: rgba(47, 91, 76, 0.18);
+  color: var(--forest);
+}
+
+/* Category Count Pill */
+.cat-count-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
