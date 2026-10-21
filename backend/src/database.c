@@ -1,7 +1,20 @@
 #include "../include/database.h"
 #include "../include/cJSON.h"
 #include "../include/sha256.h"
+#ifdef _WIN32
 #include <windows.h>
+#define MKDIR_PORTABLE(dir) CreateDirectoryA(dir, NULL)
+#else
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <limits.h>
+#define MKDIR_PORTABLE(dir) mkdir(dir, 0755)
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1965,6 +1978,7 @@ int db_backup_to_file(const char *dest_file_path, int *out_page_count) {
     if (!dest_file_path || strlen(dest_file_path) == 0) return SQLITE_MISUSE;
 
     /* Protection 1: Never overwrite the active database file */
+#ifdef _WIN32
     char abs_dest[MAX_PATH];
     char abs_active[MAX_PATH];
     if (GetFullPathNameA(dest_file_path, MAX_PATH, abs_dest, NULL) > 0 &&
@@ -1974,6 +1988,21 @@ int db_backup_to_file(const char *dest_file_path, int *out_page_count) {
             return SQLITE_MISUSE;
         }
     }
+#else
+    char abs_dest[MAX_PATH];
+    char abs_active[MAX_PATH];
+    if (realpath(s_active_db_path, abs_active)) {
+        if (realpath(dest_file_path, abs_dest)) {
+            if (strcmp(abs_dest, abs_active) == 0) {
+                fprintf(stderr, "[Backup Error] Destination path is identical to active database: %s\n", dest_file_path);
+                return SQLITE_MISUSE;
+            }
+        } else if (strcmp(dest_file_path, s_active_db_path) == 0) {
+            fprintf(stderr, "[Backup Error] Destination path is identical to active database: %s\n", dest_file_path);
+            return SQLITE_MISUSE;
+        }
+    }
+#endif
 
     /* Ensure destination directory exists */
     char dir_buf[MAX_PATH];
@@ -1990,11 +2019,11 @@ int db_backup_to_file(const char *dest_file_path, int *out_page_count) {
                 size_t len = p - dir_buf;
                 strncpy(tmp_dir, dir_buf, len);
                 tmp_dir[len] = '\0';
-                CreateDirectoryA(tmp_dir, NULL);
+                MKDIR_PORTABLE(tmp_dir);
             }
             p++;
         }
-        CreateDirectoryA(dir_buf, NULL);
+        MKDIR_PORTABLE(dir_buf);
     }
 
     /* Open the destination database connection */
@@ -2065,8 +2094,8 @@ char *db_admin_create_backup_json(const char *custom_filename) {
     }
 
     /* Ensure target directory exists */
-    CreateDirectoryA("database", NULL);
-    CreateDirectoryA("database/backups", NULL);
+    MKDIR_PORTABLE("database");
+    MKDIR_PORTABLE("database/backups");
 
     char safe_filename[128] = "";
     if (custom_filename && strlen(custom_filename) > 0) {
@@ -2140,12 +2169,13 @@ char *db_admin_list_backups_json(void) {
     cJSON *resp = cJSON_CreateObject();
     cJSON *arr = cJSON_CreateArray();
 
-    CreateDirectoryA("database", NULL);
-    CreateDirectoryA("database/backups", NULL);
+    MKDIR_PORTABLE("database");
+    MKDIR_PORTABLE("database/backups");
 
+    int count = 0;
+#ifdef _WIN32
     WIN32_FIND_DATAA fd;
     HANDLE hFind = FindFirstFileA("database/backups/*.db", &fd);
-    int count = 0;
 
     if (hFind != INVALID_HANDLE_VALUE) {
         do {
@@ -2175,6 +2205,40 @@ char *db_admin_list_backups_json(void) {
         } while (FindNextFileA(hFind, &fd));
         FindClose(hFind);
     }
+#else
+    DIR *dirp = opendir("database/backups");
+    if (dirp) {
+        struct dirent *de;
+        while ((de = readdir(dirp)) != NULL) {
+            const char *dot = strrchr(de->d_name, '.');
+            if (dot && strcmp(dot, ".db") == 0) {
+                char full_path[512];
+                snprintf(full_path, sizeof(full_path), "database/backups/%s", de->d_name);
+                struct stat st;
+                if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode)) {
+                    cJSON *b = cJSON_CreateObject();
+                    cJSON_AddStringToObject(b, "filename", de->d_name);
+                    cJSON_AddStringToObject(b, "path", full_path);
+                    cJSON_AddNumberToObject(b, "size_bytes", (double)st.st_size);
+
+                    struct tm *t = localtime(&st.st_mtime);
+                    char dt_buf[64];
+                    if (t) {
+                        snprintf(dt_buf, sizeof(dt_buf), "%04d-%02d-%02d %02d:%02d:%02d",
+                                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                                 t->tm_hour, t->tm_min, t->tm_sec);
+                    } else {
+                        snprintf(dt_buf, sizeof(dt_buf), "Unknown");
+                    }
+                    cJSON_AddStringToObject(b, "created_at", dt_buf);
+                    cJSON_AddItemToArray(arr, b);
+                    count++;
+                }
+            }
+        }
+        closedir(dirp);
+    }
+#endif
 
     cJSON_AddStringToObject(resp, "status", "success");
     cJSON_AddNumberToObject(resp, "count", count);

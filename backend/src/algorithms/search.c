@@ -1,8 +1,9 @@
 #include "../../include/algorithms.h"
-#include <windows.h>
 #include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
 double get_current_time_microseconds(void) {
     static LARGE_INTEGER frequency;
     static int initialized = 0;
@@ -14,6 +15,14 @@ double get_current_time_microseconds(void) {
     QueryPerformanceCounter(&counter);
     return ((double)counter.QuadPart * 1000000.0) / (double)frequency.QuadPart;
 }
+#else
+#include <time.h>
+double get_current_time_microseconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000000.0 + (double)ts.tv_nsec / 1000.0;
+}
+#endif
 
 LinearSearchResult algorithm_linear_search(const int *arr, int n, int target) {
     LinearSearchResult res;

@@ -3,9 +3,28 @@
 #include "../include/algorithm_api.h"
 #include "../include/cJSON.h"
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#define MKDIR_PORTABLE(dir) CreateDirectoryA(dir, NULL)
+#define LAST_SOCK_ERR() WSAGetLastError()
+typedef int socklen_t;
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <errno.h>
+typedef int SOCKET;
+#define INVALID_SOCKET (-1)
+#define SOCKET_ERROR (-1)
+#define closesocket(s) close(s)
+#define MKDIR_PORTABLE(dir) mkdir(dir, 0755)
+#define LAST_SOCK_ERR() errno
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -243,7 +262,7 @@ static void handle_image_upload(SOCKET sock, const char *web_root, const char *b
     /* Ensure uploads directory exists */
     char upload_dir[512];
     snprintf(upload_dir, sizeof(upload_dir), "%s/uploads", web_root);
-    CreateDirectoryA(upload_dir, NULL);
+    MKDIR_PORTABLE(upload_dir);
 
     /* Generate safe unique filename preventing path traversal or execution */
     char safe_filename[64];
@@ -776,41 +795,47 @@ static void handle_client(SOCKET sock, const char *web_root) {
 }
 
 int server_start(ServerConfig config) {
+#ifdef _WIN32
     WSADATA wsa;
     int rc = WSAStartup(MAKEWORD(2, 2), &wsa);
     if (rc != 0) {
         fprintf(stderr, "WSAStartup failed: %d\n", rc);
         return 1;
     }
+#endif
 
     /* Initialize Database */
-    rc = db_init(config.db_path);
-    if (rc != SQLITE_OK) {
+    int db_rc = db_init(config.db_path);
+    if (db_rc != SQLITE_OK) {
         fprintf(stderr, "Failed to initialize SQLite database at %s\n", config.db_path);
+#ifdef _WIN32
         WSACleanup();
+#endif
         return 1;
     }
 
     /* Ensure uploads directory exists */
     char upload_dir[512];
     snprintf(upload_dir, sizeof(upload_dir), "%s/uploads", config.web_root);
-    CreateDirectoryA(upload_dir, NULL);
+    MKDIR_PORTABLE(upload_dir);
 
     /* Ensure database backups directory exists */
-    CreateDirectoryA("database", NULL);
-    CreateDirectoryA("database/backups", NULL);
+    MKDIR_PORTABLE("database");
+    MKDIR_PORTABLE("database/backups");
 
     SOCKET listen_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_sock == INVALID_SOCKET) {
-        fprintf(stderr, "Socket creation failed: %d\n", WSAGetLastError());
+        fprintf(stderr, "Socket creation failed: %d\n", LAST_SOCK_ERR());
         db_close();
+#ifdef _WIN32
         WSACleanup();
+#endif
         return 1;
     }
 
     /* Allow address reuse */
-    BOOL opt = TRUE;
-    setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+    int opt = 1;
+    setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 
     struct sockaddr_in srv_addr;
     memset(&srv_addr, 0, sizeof(srv_addr));
@@ -819,18 +844,22 @@ int server_start(ServerConfig config) {
     srv_addr.sin_port = htons(config.port);
 
     if (bind(listen_sock, (struct sockaddr *)&srv_addr, sizeof(srv_addr)) == SOCKET_ERROR) {
-        fprintf(stderr, "Bind to port %d failed: %d\n", config.port, WSAGetLastError());
+        fprintf(stderr, "Bind to port %d failed: %d\n", config.port, LAST_SOCK_ERR());
         closesocket(listen_sock);
         db_close();
+#ifdef _WIN32
         WSACleanup();
+#endif
         return 1;
     }
 
     if (listen(listen_sock, 16) == SOCKET_ERROR) {
-        fprintf(stderr, "Listen failed: %d\n", WSAGetLastError());
+        fprintf(stderr, "Listen failed: %d\n", LAST_SOCK_ERR());
         closesocket(listen_sock);
         db_close();
+#ifdef _WIN32
         WSACleanup();
+#endif
         return 1;
     }
 
@@ -845,7 +874,7 @@ int server_start(ServerConfig config) {
 
     while (1) {
         struct sockaddr_in client_addr;
-        int client_len = sizeof(client_addr);
+        socklen_t client_len = sizeof(client_addr);
         SOCKET client_sock = accept(listen_sock, (struct sockaddr *)&client_addr, &client_len);
         if (client_sock == INVALID_SOCKET) {
             continue;
@@ -855,6 +884,8 @@ int server_start(ServerConfig config) {
 
     closesocket(listen_sock);
     db_close();
+#ifdef _WIN32
     WSACleanup();
+#endif
     return 0;
 }

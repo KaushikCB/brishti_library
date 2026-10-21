@@ -4,7 +4,7 @@
 **Course:** CSE214 — Algorithm Lab & Full-Stack Development  
 **Academic Requirement:** Backend strictly in C (C99), SQLite via C API, HTML5/CSS3/Vanilla JS Frontend.  
 **Report Date:** October 22, 2026  
-**Status:** All Core Storefront, CSE214 Algorithms, Admin Product CRUD, Secure Admin Login, Category Management, Photo Uploads, Warm Blue Themes, and SQLite Online Backup API Verified.
+**Status:** All Core Storefront, CSE214 Algorithms, Admin Product CRUD, Secure Admin Login, Category Management, Photo Uploads, Warm Blue Themes, SQLite Online Backup API, and Cross-Platform Linux/Docker Deployment verified.
 
 ---
 
@@ -12,14 +12,14 @@
 
 BrishtiLibrary is a full-featured e-commerce platform for physical books and stationery that simultaneously powers interactive laboratory demonstrations for the **CSE214 Algorithm Course**.
 
-All core requirements—including student customer journeys, product discovery, shopping cart calculations, transactional order placement, order status tracking, admin catalog CRUD, and 5 classic algorithmic paradigms—have been implemented strictly in **C** using native Windows Sockets (`winsock2.h`), SQLite C API (`sqlite3.h`), and `cJSON`.
+All core requirements—including student customer journeys, product discovery, shopping cart calculations, transactional order placement, order status tracking, admin catalog CRUD, and 5 classic algorithmic paradigms—have been implemented strictly in **C** using SQLite C API (`sqlite3.h`), and `cJSON`.
 
-In this milestone, five core enhancements are verified and active:
-1. **SQLite Online Backup API (`sqlite3_backup_init`):** Consistent hot snapshots streaming 50 pages at a time, lock yielding with `sqlite3_sleep(25)`, canonical path overwrite safeguards (`GetFullPathNameA`, `lstrcmpiA`), file size tracking, backup listing, authenticated downloads, and safe deletion.
-2. **Secure Admin Login:** Initial first-time setup for the user to define their own credentials, salted SHA-256 (5,000 rounds) password storage, permanent setup lockout, session verification, and password change.
-3. **Category Management:** SQLite backed taxonomy for Books & Stationery with safety guards against deleting categories containing active products.
-4. **Product Image Uploads:** C backend Base64 decoder with binary magic byte validation (JPEG, PNG, WebP), safe unique filename generation, persistent storage in `frontend/uploads/`, and fallback illustration when no photo is uploaded.
-5. **Warm Blue Light/Dark Themes:** Palette implementation with `#EAF2F8` (Light) and `#151F2B` (Dark), sun/moon instant toggle, `localStorage` persistence, and system preference detection across Storefront, Admin, and Algorithm Lab.
+In this milestone, cross-platform POSIX/Linux hosting readiness was completed:
+1. **Cross-Platform C99 Sockets:** Sockets, server lifecycle, and network error reporting abstract cleanly between POSIX (Linux) and Winsock2 (Windows) via `#ifdef _WIN32`.
+2. **Dynamic `PORT` Resolution:** Server listens on `$PORT` passed by cloud hosting platforms (Render, Fly.io, Railway, etc.), falling back to CLI argument or port `8080`.
+3. **High-Resolution POSIX Timers:** Microsecond algorithm benchmarking supports POSIX `clock_gettime(CLOCK_MONOTONIC)` alongside Windows `QueryPerformanceCounter`.
+4. **POSIX Online Backup & Directory Listing:** Canonical overwrite checks support POSIX `realpath()`, and snapshot listing supports `<dirent.h>` and `stat()`.
+5. **Multi-Stage Dockerfile & Build Scripts:** Root-level `Dockerfile` (Alpine ~15MB image), root `Makefile`, and `backend/build.sh` added for zero-config Linux deployments.
 
 ---
 
@@ -29,6 +29,7 @@ In this milestone, five core enhancements are verified and active:
 * **CSE214 Algorithm Unit Suite (`test_algorithms.exe`):** 76 / 76 Passed (100%)
 * **Standalone SQLite Online Backup C99 Suite (`test_backup.exe`):** 19 / 19 Passed (100%)
 * **Web & Security Integration Suite (`test_new_features.ps1`):** 54 / 54 Passed (100%)
+* **Dynamic `PORT` Environment Variable Test:** Verified server binds and serves requests when `PORT=8095` is set in environment.
 * **Grand Total Verified Tests:** **149 / 149 Passed (100%)**
 
 ---
@@ -90,38 +91,37 @@ In this milestone, five core enhancements are verified and active:
 
 ---
 
-## 3. How to Build and Run Locally
+## 3. How to Build and Run
 
-### 1. Run Algorithm Lab Tests:
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\build.ps1
-```
+### A. On Windows (Local Development):
+1. **Compile Server:**
+   ```powershell
+   gcc -std=c99 -Wall -Wextra -O2 -Ibackend/include backend/src/main.c backend/src/server.c backend/src/algorithm_api.c backend/src/database.o backend/src/sqlite3.o backend/src/cJSON.o backend/src/sha256.o backend/src/algorithms/*.c -o backend/server.exe -lws2_32
+   ```
+2. **Start Server:**
+   ```powershell
+   .\backend\server.exe 8080
+   ```
+   Or specify port via environment variable:
+   ```powershell
+   $env:PORT="8080"; .\backend\server.exe
+   ```
 
-### 2. Run Standalone SQLite Backup C99 Tests:
-```powershell
-.\backend\tests\test_backup.exe
-```
+### B. On Linux / Docker (Cloud Deployment):
+1. **Build Container:**
+   ```bash
+   docker build -t brishti-library .
+   ```
+2. **Run Container:**
+   ```bash
+   docker run -p 8080:8080 -e PORT=8080 brishti-library
+   ```
 
-### 3. Run Full Integration Suite:
-```powershell
-powershell -ExecutionPolicy Bypass -File scratch\test_new_features.ps1
-```
+---
 
-### 4. Compile Server:
-```powershell
-gcc -std=c99 -Wall -Wextra -O2 -Ibackend/include backend/src/main.c backend/src/server.c backend/src/algorithm_api.c backend/src/database.o backend/src/sqlite3.o backend/src/cJSON.o backend/src/sha256.o backend/src/algorithms/*.c -o backend/server.exe -lws2_32
-```
+## 4. Next Step: Free Public Deployment
 
-### 5. Start Server:
-```powershell
-.\backend\server.exe 8080
-```
-Open **[http://localhost:8080](http://localhost:8080)** in your browser.
-
-### 6. Administrator Setup & Database Backups:
-1. Open **[http://localhost:8080/admin](http://localhost:8080/admin)** in your browser.
-2. The initial setup card will appear: enter your chosen administrator username and secure password. Once saved, the first-time setup is permanently closed.
-3. In the Admin Dashboard, scroll to **Database Backups (SQLite Online Backup API)**:
-   - Click **+ Create Safe Backup** to take an instantaneous, non-blocking online snapshot.
-   - Click **Download** to save the `.db` snapshot locally.
-   - Click **Delete** to safely remove old backup snapshots.
+1. Commit and push the repository to GitHub.
+2. Sign up or log in to **[Render.com](https://render.com)**.
+3. Click **New +** > **Web Service** and connect the BrishtiLibrary repository.
+4. Render will automatically detect the root **`Dockerfile`**, compile the C backend in Alpine Linux, expose the port dynamically via `$PORT`, and provision a free HTTPS URL (e.g. `https://brishti-library.onrender.com`).

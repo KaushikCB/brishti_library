@@ -1,0 +1,6 @@
+.git
+*.exe
+*.o
+database/brishti_test*
+database/backups/*
+scratch/
