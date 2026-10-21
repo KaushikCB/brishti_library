@@ -214,6 +214,54 @@ try {
     Assert-Test "Admin admin.html contains theme toggle button" ($adminHtml.Contains("theme-toggle"))
     Assert-Test "Algorithms algorithms.html contains theme toggle button" ($algoHtml.Contains("theme-toggle"))
 
+    # --- FEATURE 5: SQLITE ONLINE BACKUP API ---
+    Write-Host "`n--- Testing Feature 5: SQLite Online Backup API ---" -ForegroundColor Yellow
+
+    # 5.1 Customer cannot access backup endpoint
+    try {
+        Invoke-WebRequest -Uri "$baseUrl/api/admin/backup" -Method Post -Body "{}" -ContentType "application/json" -UseBasicParsing -WebSession $custSession
+        Assert-Test "Customer backup request is rejected" ($false)
+    } catch {
+        Assert-Test "Customer backup request is rejected with 401/403" ($_.Exception.Response.StatusCode.value__ -in @(401, 403))
+    }
+
+    # 5.2 Admin creates backup via SQLite Online Backup API
+    $backupResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/backup" -Method Post -Body "{}" -ContentType "application/json" -UseBasicParsing -WebSession $adminSession
+    $backupData = $backupResp.Content | ConvertFrom-Json
+    Assert-Test "Admin creates online backup with HTTP 201" ($backupResp.StatusCode -eq 201 -and $backupData.status -eq "success")
+    Assert-Test "Backup filename has valid timestamped format" ($backupData.filename -like "brishti_backup_*.db")
+    Assert-Test "Backup file size is greater than zero bytes" ($backupData.size_bytes -gt 0)
+    $backupFileName = $backupData.filename
+
+    # 5.3 Backup file exists in database/backups on disk
+    Assert-Test "Backup file physically exists in database/backups/" (Test-Path "database/backups/$backupFileName")
+
+    # 5.4 List backups via GET /api/admin/backups
+    $backupsListResp = Invoke-RestMethod -Uri "$baseUrl/api/admin/backups" -UseBasicParsing -WebSession $adminSession
+    Assert-Test "GET /api/admin/backups returns array of backups" ($backupsListResp.status -eq "success" -and $backupsListResp.backups.Count -gt 0)
+    $foundBackup = $backupsListResp.backups | Where-Object { $_.filename -eq $backupFileName } | Select-Object -First 1
+    Assert-Test "Created backup appears in backup list" ($foundBackup -ne $null)
+
+    # 5.5 Download backup file via GET /api/admin/backups/download/:filename
+    $downloadResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/backups/download/$backupFileName" -UseBasicParsing -WebSession $adminSession
+    Assert-Test "Download backup returns HTTP 200" ($downloadResp.StatusCode -eq 200)
+    Assert-Test "Download has application/x-sqlite3 content-type" ($downloadResp.Headers["Content-Type"] -like "*application/x-sqlite3*")
+    Assert-Test "Downloaded file matches size" ($downloadResp.RawContentLength -eq $backupData.size_bytes -or $downloadResp.Content.Length -gt 0)
+
+    # 5.6 Path traversal prevention on download
+    try {
+        Invoke-WebRequest -Uri "$baseUrl/api/admin/backups/download/..%2F..%2Fbrishti.db" -UseBasicParsing -WebSession $adminSession
+        Assert-Test "Path traversal download is blocked" ($false)
+    } catch {
+        Assert-Test "Path traversal download is blocked with 400/403" ($_.Exception.Response.StatusCode.value__ -in @(400, 403))
+    }
+
+    # 5.7 Delete backup via DELETE /api/admin/backups/:filename
+    $deleteBackupResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/backups/$backupFileName" -Method Delete -UseBasicParsing -WebSession $adminSession
+    $deleteBackupData = $deleteBackupResp.Content | ConvertFrom-Json
+    Assert-Test "DELETE backup returns HTTP 200" ($deleteBackupResp.StatusCode -eq 200 -and $deleteBackupData.status -eq "success")
+    Assert-Test "Deleted backup no longer exists on disk" (-not (Test-Path "database/backups/$backupFileName"))
+
     # --- REGRESSION CHECK: STOREFRONT CART & CSE214 ALGORITHMS ---
     Write-Host "`n--- Testing Regression: Storefront & Algorithms ---" -ForegroundColor Yellow
     

@@ -203,6 +203,41 @@
           </div>
         </section>
 
+        <!-- Database Maintenance & Online Backup Section -->
+        <section class="admin-section">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">Reliability &amp; Disaster Recovery</p>
+              <h2>Database Backups (SQLite Online Backup API)</h2>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <button class="btn btn-sm btn-ghost" id="btn-refresh-admin-backups">Refresh Backups</button>
+              <button class="btn btn-sm btn-primary" id="btn-create-backup">+ Create Safe Backup</button>
+            </div>
+          </div>
+
+          <p class="text-muted" style="margin-top:-10px;margin-bottom:16px;">
+            Online backups utilize the official <code>sqlite3_backup_init</code> API. Backups are incrementally streamed in 50-page chunks without holding exclusive write locks, guaranteeing consistent snapshots even during active store transactions.
+          </p>
+
+          <div class="table-responsive">
+            <table class="lab-table admin-table" id="admin-backups-table">
+              <thead>
+                <tr>
+                  <th>Backup File</th>
+                  <th>Size</th>
+                  <th>Created Timestamp</th>
+                  <th>Engine Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-backups-tbody">
+                <tr><td colspan="5">Loading backups list…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Product Inventory Management -->
         <section class="admin-section">
           <div class="section-title-row">

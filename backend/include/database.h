@@ -46,4 +46,11 @@ char *db_admin_setup_json(const char *email, const char *password);
 char *db_admin_login_json(const char *email, const char *password, char *out_token_buf, size_t token_buf_len);
 char *db_admin_change_password_json(int admin_user_id, const char *current_password, const char *new_password);
 
+/* SQLite Online Backup API */
+int db_backup_to_file(const char *dest_file_path, int *out_page_count);
+char *db_admin_create_backup_json(const char *custom_filename);
+char *db_admin_list_backups_json(void);
+int db_admin_delete_backup(const char *filename);
+const char *db_get_active_file_path(void);
+
 #endif /* DATABASE_H */

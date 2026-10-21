@@ -158,6 +158,7 @@
     loadAdminOrders();
     loadAdminCategories();
     loadAdminProducts();
+    loadAdminBackups();
   }
 
   /* === FORM: FIRST-TIME SETUP === */
@@ -946,6 +947,116 @@
     btnRefreshAdminOrders.addEventListener("click", () => {
       loadAdminOrders();
       showToast("Orders refreshed.");
+    });
+  }
+
+  /* === DATABASE BACKUPS (SQLITE ONLINE BACKUP API) === */
+  const adminBackupsTbody = document.getElementById("admin-backups-tbody");
+  const btnRefreshAdminBackups = document.getElementById("btn-refresh-admin-backups");
+  const btnCreateBackup = document.getElementById("btn-create-backup");
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  }
+
+  async function loadAdminBackups() {
+    if (!adminBackupsTbody) return;
+    try {
+      const resp = await fetch("/api/admin/backups");
+      if (!resp.ok) {
+        adminBackupsTbody.innerHTML = `<tr><td colspan="5">Failed to load backups list.</td></tr>`;
+        return;
+      }
+
+      const data = await resp.json();
+      const backups = data.backups || [];
+
+      if (!backups.length) {
+        adminBackupsTbody.innerHTML = `<tr><td colspan="5">No backups created yet. Click "+ Create Safe Backup" to take an online snapshot.</td></tr>`;
+        return;
+      }
+
+      adminBackupsTbody.innerHTML = backups
+        .map((b) => {
+          return `
+            <tr>
+              <td><code>${escapeHtml(b.filename)}</code></td>
+              <td>${formatBytes(b.size_bytes)}</td>
+              <td>${escapeHtml(b.created_at)}</td>
+              <td><span class="badge" style="background:rgba(47,91,76,0.15);color:var(--forest);padding:2px 8px;border-radius:6px;font-size:0.78rem;font-weight:700;">sqlite3_backup_init (OK)</span></td>
+              <td>
+                <div style="display:flex;gap:6px;">
+                  <a href="/api/admin/backups/download/${encodeURIComponent(b.filename)}" class="btn-xs btn-outline" download>Download</a>
+                  <button class="btn-xs btn-danger-outline btn-delete-backup" data-backup-name="${escapeHtml(b.filename)}">Delete</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      // Bind delete buttons
+      document.querySelectorAll(".btn-delete-backup").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const fn = btn.getAttribute("data-backup-name");
+          if (!confirm(`Are you sure you want to permanently delete backup "${fn}"?`)) return;
+
+          try {
+            const delResp = await fetch(`/api/admin/backups/${encodeURIComponent(fn)}`, { method: "DELETE" });
+            const resData = await delResp.json();
+            if (delResp.ok && resData.status === "success") {
+              showToast("Backup deleted successfully.");
+              loadAdminBackups();
+            } else {
+              showToast(resData.message || "Failed to delete backup.");
+            }
+          } catch (err) {
+            showToast("Network error: " + err.message);
+          }
+        });
+      });
+    } catch (err) {
+      console.warn("Backups load error:", err);
+      adminBackupsTbody.innerHTML = `<tr><td colspan="5">Error loading backups: ${err.message}</td></tr>`;
+    }
+  }
+
+  if (btnCreateBackup) {
+    btnCreateBackup.addEventListener("click", async () => {
+      btnCreateBackup.disabled = true;
+      btnCreateBackup.textContent = "Creating Backup…";
+
+      try {
+        const resp = await fetch("/api/admin/backup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const data = await resp.json();
+
+        if (resp.ok && data.status === "success") {
+          showToast(`Backup created: ${data.backup_file} (${data.page_count} pages)`);
+          loadAdminBackups();
+        } else {
+          showToast(data.message || "Backup failed.");
+        }
+      } catch (err) {
+        showToast("Network error during backup: " + err.message);
+      } finally {
+        btnCreateBackup.disabled = false;
+        btnCreateBackup.textContent = "+ Create Safe Backup";
+      }
+    });
+  }
+
+  if (btnRefreshAdminBackups) {
+    btnRefreshAdminBackups.addEventListener("click", () => {
+      loadAdminBackups();
+      showToast("Backups refreshed.");
     });
   }
 

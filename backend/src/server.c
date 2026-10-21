@@ -642,6 +642,57 @@ static void handle_client(SOCKET sock, const char *web_root) {
             free(json);
         } else if (strcmp(path, "/api/admin/upload") == 0 && strcmp(method, "POST") == 0) {
             handle_image_upload(sock, web_root, body);
+        } else if (strcmp(path, "/api/admin/backup") == 0 && strcmp(method, "POST") == 0) {
+            cJSON *req = cJSON_Parse(body);
+            const char *custom_name = NULL;
+            if (req) {
+                cJSON *fn = cJSON_GetObjectItem(req, "filename");
+                if (fn && fn->valuestring && strlen(fn->valuestring) > 0) custom_name = fn->valuestring;
+            }
+            char *json = db_admin_create_backup_json(custom_name);
+            int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 500 : 201;
+            send_json_response(sock, code, json, NULL);
+            if (req) cJSON_Delete(req);
+            free(json);
+        } else if (strcmp(path, "/api/admin/backups") == 0 && strcmp(method, "GET") == 0) {
+            char *json = db_admin_list_backups_json();
+            send_json_response(sock, 200, json, NULL);
+            free(json);
+        } else if (strncmp(path, "/api/admin/backups/download/", 28) == 0 && strcmp(method, "GET") == 0) {
+            const char *filename = path + 28;
+            if (strstr(filename, "..") || strchr(filename, '/') || strchr(filename, '\\')) {
+                send_error_json(sock, 403, "Forbidden path");
+            } else {
+                char full_dest[512];
+                snprintf(full_dest, sizeof(full_dest), "database/backups/%s", filename);
+                FILE *bf = fopen(full_dest, "rb");
+                if (!bf) {
+                    send_error_json(sock, 404, "Backup file not found");
+                } else {
+                    fseek(bf, 0, SEEK_END);
+                    long sz = ftell(bf);
+                    fseek(bf, 0, SEEK_SET);
+                    char *buf = (char *)malloc(sz);
+                    if (buf) {
+                        fread(buf, 1, sz, bf);
+                        char disp_hdr[256];
+                        snprintf(disp_hdr, sizeof(disp_hdr), "Content-Disposition: attachment; filename=\"%s\"\r\n", filename);
+                        send_http_response(sock, 200, "OK", "application/x-sqlite3", buf, sz, disp_hdr);
+                        free(buf);
+                    } else {
+                        send_error_json(sock, 500, "Out of memory");
+                    }
+                    fclose(bf);
+                }
+            }
+        } else if (strncmp(path, "/api/admin/backups/", 19) == 0 && strcmp(method, "DELETE") == 0) {
+            const char *filename = path + 19;
+            int rc = db_admin_delete_backup(filename);
+            if (rc == 0) {
+                send_json_response(sock, 200, "{\"status\":\"success\",\"message\":\"Backup deleted successfully\"}", NULL);
+            } else {
+                send_error_json(sock, 400, "Failed to delete backup file or file not found");
+            }
         } else if (strcmp(path, "/api/admin/categories") == 0 && strcmp(method, "POST") == 0) {
             char *json = db_admin_create_category_json(body);
             int code = (strstr(json, "\"status\":\"error\"") != NULL) ? 400 : 201;
@@ -744,6 +795,10 @@ int server_start(ServerConfig config) {
     char upload_dir[512];
     snprintf(upload_dir, sizeof(upload_dir), "%s/uploads", config.web_root);
     CreateDirectoryA(upload_dir, NULL);
+
+    /* Ensure database backups directory exists */
+    CreateDirectoryA("database", NULL);
+    CreateDirectoryA("database/backups", NULL);
 
     SOCKET listen_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_sock == INVALID_SOCKET) {

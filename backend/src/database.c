@@ -1,12 +1,14 @@
 #include "../include/database.h"
 #include "../include/cJSON.h"
 #include "../include/sha256.h"
+#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 sqlite3 *g_db = NULL;
+static char s_active_db_path[512] = "";
 
 static void generate_random_token(char *out_buf, size_t len) {
     static const char hex_chars[] = "0123456789abcdef";
@@ -19,6 +21,11 @@ static void generate_random_token(char *out_buf, size_t len) {
 int db_init(const char *db_file_path) {
     if (g_db) return 0;
     srand((unsigned int)time(NULL));
+
+    if (db_file_path) {
+        strncpy(s_active_db_path, db_file_path, sizeof(s_active_db_path) - 1);
+        s_active_db_path[sizeof(s_active_db_path) - 1] = '\0';
+    }
 
     int rc = sqlite3_open(db_file_path, &g_db);
     if (rc != SQLITE_OK) {
@@ -1942,5 +1949,248 @@ char *db_admin_change_password_json(int admin_user_id, const char *current_passw
     char *s = cJSON_PrintUnformatted(resp);
     cJSON_Delete(resp);
     return s;
+}
+
+/* ========================================================================= */
+/* --- SQLITE ONLINE BACKUP API IMPLEMENTATION (sqlite3_backup_init) ---     */
+/* ========================================================================= */
+
+const char *db_get_active_file_path(void) {
+    return s_active_db_path;
+}
+
+int db_backup_to_file(const char *dest_file_path, int *out_page_count) {
+    if (out_page_count) *out_page_count = 0;
+    if (!g_db) return SQLITE_MISUSE;
+    if (!dest_file_path || strlen(dest_file_path) == 0) return SQLITE_MISUSE;
+
+    /* Protection 1: Never overwrite the active database file */
+    char abs_dest[MAX_PATH];
+    char abs_active[MAX_PATH];
+    if (GetFullPathNameA(dest_file_path, MAX_PATH, abs_dest, NULL) > 0 &&
+        GetFullPathNameA(s_active_db_path, MAX_PATH, abs_active, NULL) > 0) {
+        if (lstrcmpiA(abs_dest, abs_active) == 0) {
+            fprintf(stderr, "[Backup Error] Destination path is identical to active database: %s\n", dest_file_path);
+            return SQLITE_MISUSE;
+        }
+    }
+
+    /* Ensure destination directory exists */
+    char dir_buf[MAX_PATH];
+    strncpy(dir_buf, dest_file_path, sizeof(dir_buf) - 1);
+    dir_buf[sizeof(dir_buf) - 1] = '\0';
+    char *last_slash = strrchr(dir_buf, '/');
+    if (!last_slash) last_slash = strrchr(dir_buf, '\\');
+    if (last_slash) {
+        *last_slash = '\0';
+        char tmp_dir[MAX_PATH] = "";
+        char *p = dir_buf;
+        while (*p) {
+            if (*p == '/' || *p == '\\') {
+                size_t len = p - dir_buf;
+                strncpy(tmp_dir, dir_buf, len);
+                tmp_dir[len] = '\0';
+                CreateDirectoryA(tmp_dir, NULL);
+            }
+            p++;
+        }
+        CreateDirectoryA(dir_buf, NULL);
+    }
+
+    /* Open the destination database connection */
+    sqlite3 *pDest = NULL;
+    int rc = sqlite3_open(dest_file_path, &pDest);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "[Backup Error] Cannot open destination database %s: %s\n",
+                dest_file_path, sqlite3_errmsg(pDest));
+        if (pDest) sqlite3_close(pDest);
+        return rc;
+    }
+
+    /* Initialize the SQLite online backup operation */
+    sqlite3_backup *pBackup = sqlite3_backup_init(pDest, "main", g_db, "main");
+    if (!pBackup) {
+        int err = sqlite3_errcode(pDest);
+        fprintf(stderr, "[Backup Error] sqlite3_backup_init failed on %s: %s\n",
+                dest_file_path, sqlite3_errmsg(pDest));
+        sqlite3_close(pDest);
+        remove(dest_file_path);
+        return err ? err : SQLITE_ERROR;
+    }
+
+    /* Step through backup incrementally (50 pages per step) to avoid blocking concurrent writers */
+    int page_count = 0;
+    int retries = 0;
+    const int max_retries = 250; /* Up to ~6.25 seconds total wait under heavy concurrency */
+
+    do {
+        rc = sqlite3_backup_step(pBackup, 50);
+        if (rc == SQLITE_OK) {
+            retries = 0;
+        } else if (rc == SQLITE_BUSY || rc == SQLITE_LOCKED) {
+            sqlite3_sleep(25); /* Yield lock and sleep 25ms */
+            retries++;
+            if (retries > max_retries) {
+                fprintf(stderr, "[Backup Error] Database lock acquisition timed out after %d retries\n", retries);
+                break;
+            }
+        }
+    } while (rc == SQLITE_OK || rc == SQLITE_BUSY || rc == SQLITE_LOCKED);
+
+    page_count = sqlite3_backup_pagecount(pBackup);
+    if (out_page_count) *out_page_count = page_count;
+
+    int finish_rc = sqlite3_backup_finish(pBackup);
+    sqlite3_close(pDest);
+
+    if (rc == SQLITE_DONE && (finish_rc == SQLITE_OK || finish_rc == SQLITE_DONE)) {
+        return SQLITE_OK;
+    } else {
+        /* Remove partial or corrupted file on failure */
+        remove(dest_file_path);
+        fprintf(stderr, "[Backup Error] Backup failed with step rc=%d, finish rc=%d\n", rc, finish_rc);
+        return (finish_rc != SQLITE_OK) ? finish_rc : rc;
+    }
+}
+
+char *db_admin_create_backup_json(const char *custom_filename) {
+    cJSON *resp = cJSON_CreateObject();
+
+    if (!g_db) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "Database engine is not initialized.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    /* Ensure target directory exists */
+    CreateDirectoryA("database", NULL);
+    CreateDirectoryA("database/backups", NULL);
+
+    char safe_filename[128] = "";
+    if (custom_filename && strlen(custom_filename) > 0) {
+        /* Sanitize: avoid path traversal */
+        if (strstr(custom_filename, "..") || strchr(custom_filename, '/') || strchr(custom_filename, '\\')) {
+            cJSON_AddStringToObject(resp, "status", "error");
+            cJSON_AddStringToObject(resp, "message", "Invalid custom backup filename: path traversal characters disallowed.");
+            char *s = cJSON_PrintUnformatted(resp);
+            cJSON_Delete(resp);
+            return s;
+        }
+        strncpy(safe_filename, custom_filename, sizeof(safe_filename) - 5);
+        if (!strstr(safe_filename, ".db")) {
+            strncat(safe_filename, ".db", sizeof(safe_filename) - strlen(safe_filename) - 1);
+        }
+    } else {
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+        snprintf(safe_filename, sizeof(safe_filename), "brishti_backup_%04d%02d%02d_%02d%02d%02d.db",
+                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                 t->tm_hour, t->tm_min, t->tm_sec);
+    }
+
+    char dest_path[512];
+    snprintf(dest_path, sizeof(dest_path), "database/backups/%s", safe_filename);
+
+    int page_count = 0;
+    int rc = db_backup_to_file(dest_path, &page_count);
+    if (rc != SQLITE_OK) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        char err_msg[256];
+        snprintf(err_msg, sizeof(err_msg), "Online backup failed with SQLite error code %d", rc);
+        cJSON_AddStringToObject(resp, "message", err_msg);
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
+    /* Compute size on disk */
+    long file_size = 0;
+    FILE *f = fopen(dest_path, "rb");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        file_size = ftell(f);
+        fclose(f);
+    }
+
+    /* Format timestamp */
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    char time_str[64];
+    snprintf(time_str, sizeof(time_str), "%04d-%02d-%02d %02d:%02d:%02d",
+             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+             t->tm_hour, t->tm_min, t->tm_sec);
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddStringToObject(resp, "message", "Database backup created successfully using SQLite Online Backup API");
+    cJSON_AddStringToObject(resp, "backup_file", safe_filename);
+    cJSON_AddStringToObject(resp, "filename", safe_filename);
+    cJSON_AddStringToObject(resp, "backup_path", dest_path);
+    cJSON_AddNumberToObject(resp, "page_count", page_count);
+    cJSON_AddNumberToObject(resp, "size_bytes", (double)file_size);
+    cJSON_AddStringToObject(resp, "created_at", time_str);
+
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
+}
+
+char *db_admin_list_backups_json(void) {
+    cJSON *resp = cJSON_CreateObject();
+    cJSON *arr = cJSON_CreateArray();
+
+    CreateDirectoryA("database", NULL);
+    CreateDirectoryA("database/backups", NULL);
+
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA("database/backups/*.db", &fd);
+    int count = 0;
+
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                cJSON *b = cJSON_CreateObject();
+                cJSON_AddStringToObject(b, "filename", fd.cFileName);
+                char full_path[512];
+                snprintf(full_path, sizeof(full_path), "database/backups/%s", fd.cFileName);
+                cJSON_AddStringToObject(b, "path", full_path);
+
+                ULARGE_INTEGER uli;
+                uli.LowPart = fd.nFileSizeLow;
+                uli.HighPart = fd.nFileSizeHigh;
+                cJSON_AddNumberToObject(b, "size_bytes", (double)uli.QuadPart);
+
+                FILETIME lft;
+                FileTimeToLocalFileTime(&fd.ftLastWriteTime, &lft);
+                SYSTEMTIME st;
+                FileTimeToSystemTime(&lft, &st);
+                char dt_buf[64];
+                snprintf(dt_buf, sizeof(dt_buf), "%04d-%02d-%02d %02d:%02d:%02d",
+                         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+                cJSON_AddStringToObject(b, "created_at", dt_buf);
+                cJSON_AddItemToArray(arr, b);
+                count++;
+            }
+        } while (FindNextFileA(hFind, &fd));
+        FindClose(hFind);
+    }
+
+    cJSON_AddStringToObject(resp, "status", "success");
+    cJSON_AddNumberToObject(resp, "count", count);
+    cJSON_AddItemToObject(resp, "backups", arr);
+
+    char *s = cJSON_PrintUnformatted(resp);
+    cJSON_Delete(resp);
+    return s;
+}
+
+int db_admin_delete_backup(const char *filename) {
+    if (!filename || strlen(filename) == 0) return -1;
+    if (strstr(filename, "..") || strchr(filename, '/') || strchr(filename, '\\')) return -1;
+
+    char full_path[512];
+    snprintf(full_path, sizeof(full_path), "database/backups/%s", filename);
+    return remove(full_path);
 }
 
