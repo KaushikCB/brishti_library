@@ -167,12 +167,19 @@
       e.preventDefault();
       setupAlert.style.display = "none";
 
-      const username = document.getElementById("setup-username").value.trim();
+      const emailEl = document.getElementById("setup-email") || document.getElementById("setup-username");
+      const email = emailEl ? emailEl.value.trim() : "";
       const password = document.getElementById("setup-password").value;
       const confirmPassword = document.getElementById("setup-confirm-password").value;
 
-      if (!username || !password) {
+      if (!email || !password) {
         setupAlert.textContent = "Please fill in all fields.";
+        setupAlert.style.display = "flex";
+        return;
+      }
+
+      if (!email.includes("@") || !email.includes(".")) {
+        setupAlert.textContent = "Please enter a valid administrator email address.";
         setupAlert.style.display = "flex";
         return;
       }
@@ -193,7 +200,7 @@
         const resp = await fetch("/api/admin/setup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ email, password }),
         });
 
         const data = await resp.json();
@@ -217,11 +224,18 @@
       e.preventDefault();
       loginAlert.style.display = "none";
 
-      const username = document.getElementById("login-username").value.trim();
+      const emailEl = document.getElementById("login-email") || document.getElementById("login-username");
+      const email = emailEl ? emailEl.value.trim() : "";
       const password = document.getElementById("login-password").value;
 
-      if (!username || !password) {
-        loginAlert.textContent = "Please enter username and password.";
+      if (!email || !password) {
+        loginAlert.textContent = "Please enter email address and password.";
+        loginAlert.style.display = "flex";
+        return;
+      }
+
+      if (!email.includes("@") || !email.includes(".")) {
+        loginAlert.textContent = "Please enter a valid administrator email address.";
         loginAlert.style.display = "flex";
         return;
       }
@@ -230,7 +244,7 @@
         const resp = await fetch("/api/admin/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ email, password }),
         });
 
         const data = await resp.json();
@@ -238,7 +252,7 @@
           showToast("Signed in as Admin.");
           showDashboardView();
         } else {
-          loginAlert.textContent = data.message || "Invalid username or password.";
+          loginAlert.textContent = data.message || "Invalid email or password.";
           loginAlert.style.display = "flex";
         }
       } catch (err) {

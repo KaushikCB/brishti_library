@@ -1731,6 +1731,35 @@ char *db_admin_delete_product_json(int id) {
 
 /* --- Secure Admin Authentication Implementation --- */
 
+static int is_valid_email_format(const char *email) {
+    if (!email) return 0;
+    size_t len = strlen(email);
+    if (len < 5 || len > 120) return 0;
+    const char *at = strchr(email, '@');
+    if (!at || at == email) return 0; /* Missing @ or starts with @ */
+    if (strchr(at + 1, '@')) return 0; /* Multiple @ symbols */
+    const char *dot = strrchr(at + 1, '.');
+    if (!dot || dot == at + 1 || *(dot + 1) == '\0') return 0; /* Missing . in domain */
+    /* Ensure no whitespace or control characters */
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)email[i];
+        if (c <= 32 || c >= 127) return 0;
+    }
+    return 1;
+}
+
+static int constant_time_str_equals(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    size_t len_a = strlen(a);
+    size_t len_b = strlen(b);
+    if (len_a != len_b) return 0;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < len_a; i++) {
+        diff |= ((unsigned char)a[i] ^ (unsigned char)b[i]);
+    }
+    return diff == 0;
+}
+
 int db_admin_is_setup_completed(void) {
     sqlite3_stmt *stmt;
     const char *sql = "SELECT id FROM users WHERE role = 'admin' AND password_hash IS NOT NULL AND length(password_hash) > 0 LIMIT 1";
@@ -1750,6 +1779,14 @@ char *db_admin_setup_json(const char *email, const char *password) {
         return s;
     }
 
+    if (!email || !is_valid_email_format(email)) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "A valid administrator email address is required.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
     if (!password || strlen(password) < 6) {
         cJSON_AddStringToObject(resp, "status", "error");
         cJSON_AddStringToObject(resp, "message", "Admin password must be at least 6 characters long.");
@@ -1758,7 +1795,7 @@ char *db_admin_setup_json(const char *email, const char *password) {
         return s;
     }
 
-    const char *admin_email = (email && strlen(email) > 0) ? email : "admin@brishtilibrary.edu";
+    const char *admin_email = email;
 
     char salt[33];
     char hash[65];
@@ -1820,6 +1857,14 @@ char *db_admin_login_json(const char *email, const char *password, char *out_tok
         return s;
     }
 
+    if (!email || strlen(email) == 0 || !is_valid_email_format(email)) {
+        cJSON_AddStringToObject(resp, "status", "error");
+        cJSON_AddStringToObject(resp, "message", "A valid email address is required.");
+        char *s = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        return s;
+    }
+
     if (!password || strlen(password) == 0) {
         cJSON_AddStringToObject(resp, "status", "error");
         cJSON_AddStringToObject(resp, "message", "Password is required.");
@@ -1829,7 +1874,8 @@ char *db_admin_login_json(const char *email, const char *password, char *out_tok
     }
 
     sqlite3_stmt *stmt;
-    const char *sql = "SELECT id, email, name, password_hash, password_salt FROM users WHERE role = 'admin' AND password_hash IS NOT NULL";
+    const char *sql = "SELECT id, email, name, password_hash, password_salt FROM users "
+                      "WHERE role = 'admin' AND lower(email) = lower(?) AND password_hash IS NOT NULL LIMIT 1";
     if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
         cJSON_AddStringToObject(resp, "status", "error");
         cJSON_AddStringToObject(resp, "message", "Database error.");
@@ -1837,30 +1883,28 @@ char *db_admin_login_json(const char *email, const char *password, char *out_tok
         cJSON_Delete(resp);
         return s;
     }
+    sqlite3_bind_text(stmt, 1, email, -1, SQLITE_STATIC);
 
     int found = 0;
     int uid = 0;
     char db_name[64] = "Brishti Admin";
-    char db_email[64] = "admin@brishtilibrary.edu";
+    char db_email[128] = "admin@brishtilibrary.edu";
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
         const char *row_email = (const char*)sqlite3_column_text(stmt, 1);
+        const char *row_name = (const char*)sqlite3_column_text(stmt, 2);
         const char *db_hash = (const char*)sqlite3_column_text(stmt, 3);
         const char *db_salt = (const char*)sqlite3_column_text(stmt, 4);
 
-        if (email && strlen(email) > 0 && row_email && strcmp(email, row_email) != 0) {
-            continue;
-        }
+        if (row_email) strncpy(db_email, row_email, sizeof(db_email) - 1);
+        if (row_name) strncpy(db_name, row_name, sizeof(db_name) - 1);
 
         if (db_hash && db_salt) {
             char computed_hash[65];
             sha256_hash_password(password, db_salt, computed_hash);
-            if (strcmp(computed_hash, db_hash) == 0) {
+            if (constant_time_str_equals(computed_hash, db_hash)) {
                 found = 1;
                 uid = sqlite3_column_int(stmt, 0);
-                if (sqlite3_column_text(stmt, 2)) strncpy(db_name, (const char*)sqlite3_column_text(stmt, 2), sizeof(db_name) - 1);
-                if (row_email) strncpy(db_email, row_email, sizeof(db_email) - 1);
-                break;
             }
         }
     }

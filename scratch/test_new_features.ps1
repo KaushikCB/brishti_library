@@ -53,13 +53,32 @@ try {
     $custRes = Invoke-WebRequest -Uri "$baseUrl/api/auth/demo-login" -Method Post -Body $custBody -ContentType "application/json" -UseBasicParsing -SessionVariable custSession
     Assert-Test "Customer demo login succeeds with 200" ($custRes.StatusCode -eq 200)
 
-    # 1.4 Perform first-time admin setup
-    $setupPayload = @{ username = "testadmin"; password = "securePassword123" } | ConvertTo-Json
+    # 1.4 Admin setup with missing email rejected with 400
+    try {
+        $badSetup1 = @{ email = ""; password = "securePassword123" } | ConvertTo-Json
+        Invoke-WebRequest -Uri "$baseUrl/api/admin/setup" -Method Post -Body $badSetup1 -ContentType "application/json" -UseBasicParsing
+        Assert-Test "Setup with missing email is rejected" ($false)
+    } catch {
+        Assert-Test "Setup with missing email is rejected with 400" ($_.Exception.Response.StatusCode.value__ -eq 400)
+    }
+
+    # 1.5 Admin setup with invalid email syntax rejected with 400
+    try {
+        $badSetup2 = @{ email = "not-an-email"; password = "securePassword123" } | ConvertTo-Json
+        Invoke-WebRequest -Uri "$baseUrl/api/admin/setup" -Method Post -Body $badSetup2 -ContentType "application/json" -UseBasicParsing
+        Assert-Test "Setup with invalid email syntax is rejected" ($false)
+    } catch {
+        Assert-Test "Setup with invalid email syntax is rejected with 400" ($_.Exception.Response.StatusCode.value__ -eq 400)
+    }
+
+    # 1.6 Perform first-time admin setup with valid email
+    $setupPayload = @{ email = "admin@brishtilibrary.edu"; password = "securePassword123" } | ConvertTo-Json
     $setupResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/setup" -Method Post -Body $setupPayload -ContentType "application/json" -UseBasicParsing -SessionVariable adminSession
     $setupData = $setupResp.Content | ConvertFrom-Json
-    Assert-Test "First-time setup succeeds" ($setupResp.StatusCode -eq 200 -and $setupData.status -eq "success")
+    Assert-Test "First-time setup succeeds with valid email" ($setupResp.StatusCode -eq 200 -and $setupData.status -eq "success")
+    Assert-Test "Setup response returns admin email" ($setupData.email -eq "admin@brishtilibrary.edu")
 
-    # 1.5 Second setup attempt is blocked
+    # 1.7 Second setup attempt is blocked
     try {
         $setupResp2 = Invoke-WebRequest -Uri "$baseUrl/api/admin/setup" -Method Post -Body $setupPayload -ContentType "application/json" -UseBasicParsing
         Assert-Test "Repeated setup attempt is blocked" ($false)
@@ -67,36 +86,59 @@ try {
         Assert-Test "Repeated setup attempt is blocked (400 Bad Request)" ($_.Exception.Response.StatusCode.value__ -eq 400)
     }
 
-    # 1.6 Setup status now reports completed
+    # 1.8 Setup status now reports completed
     $statusRes2 = Invoke-RestMethod -Uri "$baseUrl/api/admin/setup-status" -UseBasicParsing
     Assert-Test "setup_completed is now true" ($statusRes2.setup_completed -eq $true)
 
-    # 1.7 Login with wrong password fails
+    # 1.9 Login with missing email fails with 400
     try {
-        $wrongLogin = @{ username = "testadmin"; password = "wrongPassword!" } | ConvertTo-Json
+        $noEmailLogin = @{ email = ""; password = "securePassword123" } | ConvertTo-Json
+        Invoke-WebRequest -Uri "$baseUrl/api/admin/login" -Method Post -Body $noEmailLogin -ContentType "application/json" -UseBasicParsing
+        Assert-Test "Login with missing email rejected with 400" ($false)
+    } catch {
+        Assert-Test "Login with missing email rejected with 400" ($_.Exception.Response.StatusCode.value__ -eq 400)
+    }
+
+    # 1.10 Login with wrong email fails with 401
+    try {
+        $wrongEmailLogin = @{ email = "wrongadmin@brishtilibrary.edu"; password = "securePassword123" } | ConvertTo-Json
+        Invoke-WebRequest -Uri "$baseUrl/api/admin/login" -Method Post -Body $wrongEmailLogin -ContentType "application/json" -UseBasicParsing
+        Assert-Test "Wrong email login rejected with 401" ($false)
+    } catch {
+        Assert-Test "Wrong email login rejected with 401" ($_.Exception.Response.StatusCode.value__ -eq 401)
+    }
+
+    # 1.11 Login with wrong password fails with 401
+    try {
+        $wrongLogin = @{ email = "admin@brishtilibrary.edu"; password = "wrongPassword!" } | ConvertTo-Json
         Invoke-WebRequest -Uri "$baseUrl/api/admin/login" -Method Post -Body $wrongLogin -ContentType "application/json" -UseBasicParsing
         Assert-Test "Wrong password login rejected with 401" ($false)
     } catch {
         Assert-Test "Wrong password login rejected with 401" ($_.Exception.Response.StatusCode.value__ -eq 401)
     }
 
-    # 1.8 Login with correct password succeeds
-    $correctLogin = @{ username = "testadmin"; password = "securePassword123" } | ConvertTo-Json
+    # 1.12 Login with correct email and password succeeds
+    $correctLogin = @{ email = "admin@brishtilibrary.edu"; password = "securePassword123" } | ConvertTo-Json
     $loginResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/login" -Method Post -Body $correctLogin -ContentType "application/json" -UseBasicParsing -WebSession $adminSession
     $loginData = $loginResp.Content | ConvertFrom-Json
-    Assert-Test "Admin login with correct password succeeds" ($loginResp.StatusCode -eq 200 -and $loginData.status -eq "success")
+    Assert-Test "Admin login with correct email succeeds" ($loginResp.StatusCode -eq 200 -and $loginData.status -eq "success")
     Assert-Test "Admin login returns user role 'admin'" ($loginData.user.role -eq "admin" -or $loginData.role -eq "admin")
 
-    # 1.9 Change admin password
+    # 1.13 Case-insensitive email login test (Admin@BrishtiLibrary.EDU)
+    $caseLogin = @{ email = "Admin@BrishtiLibrary.EDU"; password = "securePassword123" } | ConvertTo-Json
+    $caseResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/login" -Method Post -Body $caseLogin -ContentType "application/json" -UseBasicParsing
+    Assert-Test "Case-insensitive email login succeeds (200)" ($caseResp.StatusCode -eq 200)
+
+    # 1.14 Change admin password
     $pwPayload = @{ current_password = "securePassword123"; new_password = "newAdminSecret999" } | ConvertTo-Json
     $pwResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/change-password" -Method Post -Body $pwPayload -ContentType "application/json" -UseBasicParsing -WebSession $adminSession
     $pwData = $pwResp.Content | ConvertFrom-Json
     Assert-Test "Admin password change succeeds" ($pwResp.StatusCode -eq 200 -and $pwData.status -eq "success")
 
-    # 1.10 New password works for login
-    $newLogin = @{ username = "testadmin"; password = "newAdminSecret999" } | ConvertTo-Json
+    # 1.15 New password works for login with email
+    $newLogin = @{ email = "admin@brishtilibrary.edu"; password = "newAdminSecret999" } | ConvertTo-Json
     $newLoginResp = Invoke-WebRequest -Uri "$baseUrl/api/admin/login" -Method Post -Body $newLogin -ContentType "application/json" -UseBasicParsing -WebSession $adminSession
-    Assert-Test "New password successfully logs in" ($newLoginResp.StatusCode -eq 200)
+    Assert-Test "New password successfully logs in with email" ($newLoginResp.StatusCode -eq 200)
 
     # --- FEATURE 2: CATEGORY MANAGEMENT ---
     Write-Host "`n--- Testing Feature 2: Category Management ---" -ForegroundColor Yellow

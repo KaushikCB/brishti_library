@@ -73,14 +73,14 @@
           <p class="eyebrow">First-Time Setup</p>
           <h2>Create Admin Credentials</h2>
           <p class="admin-auth-desc">
-            Welcome to BrishtiLibrary. As the store owner, please create your administrator username and secure password.
+            Welcome to BrishtiLibrary. As the store owner, please create your administrator email address and secure password.
             Your password will be salted and hashed with 5,000 rounds of SHA-256 on the C backend and stored in SQLite. Once completed, initial setup is permanently disabled.
           </p>
           <div class="admin-auth-alert error" id="setup-alert" style="display:none;"></div>
           <form id="form-admin-setup">
             <div class="form-group" style="margin-bottom:14px;">
-              <label for="setup-username">Admin Username *</label>
-              <input type="text" id="setup-username" name="username" required value="admin" autocomplete="username" />
+              <label for="setup-email">Admin Email Address *</label>
+              <input type="email" id="setup-email" name="email" required placeholder="admin@brishtilibrary.edu" autocomplete="email" />
             </div>
             <div class="form-group" style="margin-bottom:14px;">
               <label for="setup-password">Admin Password * (min. 6 characters)</label>
@@ -99,13 +99,13 @@
           <p class="eyebrow">Secure Access</p>
           <h2>Administrator Sign In</h2>
           <p class="admin-auth-desc">
-            Sign in with your configured administrator credentials to access store orders, inventory, and categories.
+            Sign in with your configured administrator email address and password to access store orders, inventory, and categories.
           </p>
           <div class="admin-auth-alert error" id="login-alert" style="display:none;"></div>
           <form id="form-admin-login">
             <div class="form-group" style="margin-bottom:14px;">
-              <label for="login-username">Username *</label>
-              <input type="text" id="login-username" name="username" required value="admin" autocomplete="username" />
+              <label for="login-email">Admin Email Address *</label>
+              <input type="email" id="login-email" name="email" required placeholder="admin@brishtilibrary.edu" autocomplete="email" />
             </div>
             <div class="form-group" style="margin-bottom:20px;">
               <label for="login-password">Password *</label>

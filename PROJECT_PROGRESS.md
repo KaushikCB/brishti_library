@@ -4,7 +4,7 @@
 **Course:** CSE214 — Algorithm Lab & Full-Stack Development  
 **Academic Requirement:** Backend strictly in C (C99), SQLite via C API, HTML5/CSS3/Vanilla JS Frontend.  
 **Report Date:** October 22, 2026  
-**Status:** All Core Storefront, CSE214 Algorithms, Admin Product CRUD, Secure Admin Login, Category Management, Photo Uploads, Warm Blue Themes, SQLite Online Backup API, and Cross-Platform Linux/Docker Deployment verified.
+**Status:** All Core Storefront, CSE214 Algorithms, Admin Product CRUD, Secure Admin Email Login, Category Management, Photo Uploads, Warm Blue Themes, SQLite Online Backup API, and Cross-Platform Linux/Docker Deployment verified.
 
 ---
 
@@ -14,12 +14,14 @@ BrishtiLibrary is a full-featured e-commerce platform for physical books and sta
 
 All core requirements—including student customer journeys, product discovery, shopping cart calculations, transactional order placement, order status tracking, admin catalog CRUD, and 5 classic algorithmic paradigms—have been implemented strictly in **C** using SQLite C API (`sqlite3.h`), and `cJSON`.
 
-In this milestone, cross-platform POSIX/Linux hosting readiness was completed:
-1. **Cross-Platform C99 Sockets:** Sockets, server lifecycle, and network error reporting abstract cleanly between POSIX (Linux) and Winsock2 (Windows) via `#ifdef _WIN32`.
-2. **Dynamic `PORT` Resolution:** Server listens on `$PORT` passed by cloud hosting platforms (Render, Fly.io, Railway, etc.), falling back to CLI argument or port `8080`.
-3. **High-Resolution POSIX Timers:** Microsecond algorithm benchmarking supports POSIX `clock_gettime(CLOCK_MONOTONIC)` alongside Windows `QueryPerformanceCounter`.
-4. **POSIX Online Backup & Directory Listing:** Canonical overwrite checks support POSIX `realpath()`, and snapshot listing supports `<dirent.h>` and `stat()`.
-5. **Multi-Stage Dockerfile & Build Scripts:** Root-level `Dockerfile` (Alpine ~15MB image), root `Makefile`, and `backend/build.sh` added for zero-config Linux deployments.
+In this milestone, **Email-Based Admin Authentication** was fully implemented and verified:
+1. **Email-Based Admin Credentials:** Administrator setup and login strictly require a valid email address and password.
+2. **Backend Validation:** Validates email format on the C backend; rejects missing or malformed emails with HTTP 400.
+3. **Parameterized Case-Insensitive Queries:** Email lookups in SQLite use parameterized statements (`lower(email) = lower(?)`) preventing SQL injection and allowing case-insensitive login.
+4. **Constant-Time Verification:** Hash matching uses constant-time comparison (`constant_time_str_equals`) to prevent timing side-channels.
+5. **Role-Based Authorization:** Server-side authorization gates every `/api/admin/*` endpoint against the `sessions` table. Customers cannot gain admin privileges.
+6. **No Leaked Credentials:** Password hashes and salts are never returned in JSON API responses. Passwords are never saved in `localStorage` or `sessionStorage`.
+7. **Clean First-Time Setup:** Preserves the one-time admin setup feature, permanently locking further setup calls upon completion.
 
 ---
 
@@ -28,60 +30,20 @@ In this milestone, cross-platform POSIX/Linux hosting readiness was completed:
 ### Summary of Verified Tests:
 * **CSE214 Algorithm Unit Suite (`test_algorithms.exe`):** 76 / 76 Passed (100%)
 * **Standalone SQLite Online Backup C99 Suite (`test_backup.exe`):** 19 / 19 Passed (100%)
-* **Web & Security Integration Suite (`test_new_features.ps1`):** 54 / 54 Passed (100%)
-* **Dynamic `PORT` Environment Variable Test:** Verified server binds and serves requests when `PORT=8095` is set in environment.
-* **Grand Total Verified Tests:** **149 / 149 Passed (100%)**
+* **Web & Security Integration Suite (`test_new_features.ps1`):** 60 / 60 Passed (100%)
+* **Grand Total Verified Tests:** **155 / 155 Passed (100%)**
 
 ---
 
-### A. CSE214 Standalone Algorithm Test Suite (`test_algorithms.exe`)
-* **Total Unit Tests Executed:** 76
-* **Tests Passed:** 76 (100%)
-* **Tests Failed:** 0
-* **Test Runner:** Standalone C binary (`backend/tests/test_algorithms.exe`) compiled with `gcc -std=c99 -Wall -Wextra -O2`.
-
-| Module | Algorithms Tested | Test Coverage & Edge Cases | Status |
-| :--- | :--- | :--- | :--- |
-| **Search** | Linear Search, Binary Search | Empty arrays, 1-element match/miss, best-case $O(1)$ first-item, worst-case $O(n)$ miss, negative values, duplicates returning first index, comparisons counters. | **76/76 PASS** |
-| **Sorting** | Insertion Sort, Selection Sort, Bubble Sort, Quick Sort | Already-sorted, reverse-sorted, random order, single element, duplicates, Bubble early-exit flag ($0$ swaps, $n-1$ comparisons), Insertion $0$ shifts on sorted array. | **PASS** |
-| **Optimization** | Greedy vs Dynamic Programming Knapsack | Fractional/Greedy vs 0/1 DP; zero-budget handling; provable demonstration where Greedy yields sub-optimal 30 vs DP global optimum 40. | **PASS** |
-| **Graphs** | Dijkstra's Single-Source Shortest Path | Source distance 0, shortest paths across multi-hop campus delivery topology, unreachable nodes flagged with $\infty$, complete predecessor path reconstruction ($0 \to 2 \to 3 \to 5$). | **PASS** |
-| **Benchmarking** | Linear vs Binary Search, Sort Comparison | Real-time operation counters ($comparisons$, $swaps$, $shifts$, $runtime$). | **PASS** |
-
----
-
-### B. Standalone SQLite Online Backup C99 Suite (`test_backup.exe`)
-* **Total Unit Tests Executed:** 19
-* **Tests Passed:** 19 (100%)
-* **Tests Failed:** 0
-* **Test Runner:** Standalone C binary (`backend/tests/test_backup.exe`) compiled with `gcc -std=c99 -Wall -Wextra`.
-
-| # | Verified Test Condition | Expected Behavior | Result |
-| :---: | :--- | :--- | :---: |
-| 1 | Active Database Initialization | `db_init` sets active test database | **PASS** |
-| 2 | Overwrite Active DB Prevention | Rejects destination identical to active DB with `SQLITE_MISUSE` | **PASS** |
-| 3 | Relative Path Overwrite Prevention | Canonical path check detects `./database/test_active.db` matching active DB | **PASS** |
-| 4 | Valid Destination Backup | `db_backup_to_file` succeeds with `SQLITE_OK` | **PASS** |
-| 5 | Non-Zero Page Count | `page_count > 0` after backup completes | **PASS** |
-| 6 | Independent Backup Opening | Backup database file opened independently with `sqlite3_open` | **PASS** |
-| 7 | Schema Integrity Query | Successfully prepares SQL query inspecting `sqlite_master` in backup | **PASS** |
-| 8 | Core Tables Present in Backup | All 4 application tables (`products`, `categories`, `users`, `orders`) verified | **PASS** |
-| 9-10 | PRAGMA Integrity Check | `PRAGMA integrity_check` on backup database returns `"ok"` | **PASS** |
-| 11-15 | JSON Backup Creation API | `db_admin_create_backup_json` returns JSON with filename, pages, size | **PASS** |
-| 16 | Path Traversal Sanitization | Rejects malicious custom names like `../../danger.db` | **PASS** |
-| 17-19 | JSON Backup Listing API | `db_admin_list_backups_json` lists backups with size and formatted date | **PASS** |
-
----
-
-### C. Web & Security Integration Suite (`test_new_features.ps1`)
-* **Total Tests Executed:** 54
-* **Tests Passed:** 54 (100%)
+### A. Web & Security Integration Suite (`test_new_features.ps1`)
+* **Total Tests Executed:** 60
+* **Tests Passed:** 60 (100%)
 * **Tests Failed:** 0
 * **Execution Time:** ~4 seconds
 
 | Module | Features Tested | Result |
 | :--- | :--- | :---: |
-| **Admin Setup & Auth** | Setup status, demo admin rejection (403), customer demo login (200), first-time password setup, second setup lockout (400), salted SHA-256 password login, wrong password rejection (401), password change. | **12/12 PASS** |
+| **Admin Setup & Auth** | Setup status, demo admin rejection (403), customer demo login (200), setup missing email rejection (400), setup invalid email syntax rejection (400), first-time setup with valid email, response email verification, second setup lockout (400), login missing email rejection (400), login wrong email rejection (401), login wrong password rejection (401), login correct email (200), case-insensitive email login (`Admin@BrishtiLibrary.EDU`), password change, new password email login. | **18/18 PASS** |
 | **Category Management** | Public category query, admin category creation, admin category rename, deletion guard on active products (400), safe deletion of empty category. | **5/5 PASS** |
 | **Product Image Uploads** | PNG magic byte validation, URL generation (`/uploads/...`), disk file persistence, static image serving (200), non-image rejection (400), product creation with image, catalog query photo retention. | **8/8 PASS** |
 | **Warm Blue Themes** | CSS variables for Light (`#EAF2F8`) and Dark (`#151F2B`) palettes, theme manager script, sun/moon toggles across Storefront, Admin, and Algorithm Lab. | **14/14 PASS** |
@@ -91,37 +53,25 @@ In this milestone, cross-platform POSIX/Linux hosting readiness was completed:
 
 ---
 
-## 3. How to Build and Run
-
-### A. On Windows (Local Development):
-1. **Compile Server:**
-   ```powershell
-   gcc -std=c99 -Wall -Wextra -O2 -Ibackend/include backend/src/main.c backend/src/server.c backend/src/algorithm_api.c backend/src/database.o backend/src/sqlite3.o backend/src/cJSON.o backend/src/sha256.o backend/src/algorithms/*.c -o backend/server.exe -lws2_32
-   ```
-2. **Start Server:**
-   ```powershell
-   .\backend\server.exe 8080
-   ```
-   Or specify port via environment variable:
-   ```powershell
-   $env:PORT="8080"; .\backend\server.exe
-   ```
-
-### B. On Linux / Docker (Cloud Deployment):
-1. **Build Container:**
-   ```bash
-   docker build -t brishti-library .
-   ```
-2. **Run Container:**
-   ```bash
-   docker run -p 8080:8080 -e PORT=8080 brishti-library
-   ```
+### B. Standalone Test Suites
+* **CSE214 Algorithm Suite (`test_algorithms.exe`):** 76 / 76 Passed (100%)
+* **Standalone SQLite Online Backup C99 Suite (`test_backup.exe`):** 19 / 19 Passed (100%)
 
 ---
 
-## 4. Next Step: Free Public Deployment
+## 3. Security Analysis & Limitations
 
-1. Commit and push the repository to GitHub.
-2. Sign up or log in to **[Render.com](https://render.com)**.
-3. Click **New +** > **Web Service** and connect the BrishtiLibrary repository.
-4. Render will automatically detect the root **`Dockerfile`**, compile the C backend in Alpine Linux, expose the port dynamically via `$PORT`, and provision a free HTTPS URL (e.g. `https://brishti-library.onrender.com`).
+* **Hashing Scheme:** 5,000 iterative rounds of SHA-256 with 32-character pseudo-random salt and constant-time string comparison (`constant_time_str_equals`).
+* **Documented Limitation:** SHA-256 is compute-intensive rather than memory-hard (unlike Argon2id or bcrypt). In high-threat environments, dedicated GPU/ASIC clusters can compute SHA-256 rounds faster than memory-hard primitives. For this academic CSE214 project written in pure C99 without third-party cryptographic libraries, 5,000-round salted SHA-256 provides strong self-contained security with zero external dependencies and backward compatibility with existing accounts.
+* **Credential Hygiene:** Admin password hashes and salts are never returned in JSON API responses. Passwords are never stored in browser storage. Sessions are managed exclusively via HTTP-only, SameSite=Lax cookies (`bl_session`).
+
+---
+
+## 4. How to Run Locally
+
+1. **Start Server:**
+   ```powershell
+   .\backend\server.exe 8080
+   ```
+2. Open **[http://localhost:8080/admin](http://localhost:8080/admin)** in your browser.
+3. The database is in a clean initial state: enter your chosen **Admin Email Address** and a secure password. Once configured, you can log in using that email and password.
