@@ -31,12 +31,12 @@
 
 [data-theme="dark"] {
   /* Warm Blue Dark Mode Palette */
-  --theme-bg: #151F2B;
+  --theme-bg: #456b9a;
   --theme-card: #202D3D;
   --theme-btn: #789BCB;
   --theme-btn-hover: #8daed9;
   --theme-btn-text: #151F2B;
-  --theme-heading: #abc4e8;
+  --theme-heading: #314055;
   --theme-border: #35465A;
   --theme-text: #fcfdfe;
   --theme-text-muted: #8ea3bb;
