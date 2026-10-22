@@ -35,11 +35,11 @@
   --theme-card: #202D3D;
   --theme-btn: #789BCB;
   --theme-btn-hover: #8daed9;
-  --theme-btn-text: #151F2B;
+  --theme-btn-text: #dcd84e;
   --theme-heading: #314055;
   --theme-border: #35465A;
-  --theme-text: #fcfdfe;
-  --theme-text-muted: #8ea3bb;
+  --theme-text: #e8e8da;
+  --theme-text-muted: #e3e4ad;
 
   /* Backward Compatible Semantic Variables */
   --ink: var(--theme-heading);
